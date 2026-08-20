@@ -1,6 +1,30 @@
 import AppKit
 import SwiftUI
 
+/// NSButton refuses key focus unless Full Keyboard Access is on, so Tab would skip
+/// the chevron on a default Mac. This subclass opts into the key view loop always.
+final class ChevronButton: NSButton {
+    override var canBecomeKeyView: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override var focusRingType: NSFocusRingType {
+        get { .default }
+        set { _ = newValue }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.charactersIgnoringModifiers {
+        case "\t":
+            window?.selectNextKeyView(nil)
+        case "\u{19}": // Shift-Tab
+            window?.selectPreviousKeyView(nil)
+        case " ", "\r":
+            performClick(nil)
+        default:
+            super.keyDown(with: event)
+        }
+    }
+}
+
 /// AppKit input bar: reliable typing, Tab focus, and arrow keys in a nonactivating panel.
 struct ConsoleInputBar: NSViewRepresentable {
     @Bindable var model: NoteListModel
@@ -22,7 +46,7 @@ struct ConsoleInputBar: NSViewRepresentable {
         field.placeholderString = "New note…"
         field.delegate = context.coordinator
 
-        let button = NSButton(
+        let button = ChevronButton(
             image: Self.chevronImage(expanded: false),
             target: context.coordinator,
             action: #selector(Coordinator.toggleExpanded)

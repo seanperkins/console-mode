@@ -51,6 +51,30 @@ struct NoteListModelTests {
         #expect(model.editingNoteID == nil)
     }
 
+    @Test func arrowKeysPreserveUnsavedDraft() throws {
+        let store = try NoteStore.inMemory()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        _ = try store.append("newest", at: base.addingTimeInterval(60))
+        _ = try store.append("older", at: base)
+
+        let model = NoteListModel(store: store)
+        model.draft = "half-typed thought"
+
+        model.navigateToOlderNote()
+        #expect(model.draft == "newest")
+
+        model.navigateToOlderNote()
+        #expect(model.draft == "older")
+
+        model.navigateToNewerNote()
+        #expect(model.draft == "newest")
+
+        // Walking back past the newest note restores the unsaved line.
+        model.navigateToNewerNote()
+        #expect(model.draft == "half-typed thought")
+        #expect(model.editingNoteID == nil)
+    }
+
     @Test func commitDraftUpdatesExistingNote() throws {
         let store = try NoteStore.inMemory()
         let note = try store.append("before")!

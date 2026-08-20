@@ -73,10 +73,14 @@ final class NoteStore: @unchecked Sendable {
         }
     }
 
+    /// Newest first, with `id` breaking exact `created_at` ties so the display list
+    /// and the arrow-key navigation list can never disagree.
+    private static let newestFirst = [Column("created_at").desc, Column("id").desc]
+
     func fetchRecent(limit: Int) throws -> [Note] {
         try dbQueue.read { db in
             try Note
-                .order(Column("created_at").desc)
+                .order(Self.newestFirst)
                 .limit(limit)
                 .fetchAll(db)
         }
@@ -86,7 +90,7 @@ final class NoteStore: @unchecked Sendable {
     func observeRecent(limit: Int, onChange: @escaping @Sendable ([Note]) -> Void) -> AnyDatabaseCancellable {
         let observation = ValueObservation.tracking { db in
             try Note
-                .order(Column("created_at").desc)
+                .order(Self.newestFirst)
                 .limit(limit)
                 .fetchAll(db)
         }

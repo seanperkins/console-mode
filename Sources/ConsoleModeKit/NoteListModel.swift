@@ -10,6 +10,8 @@ final class NoteListModel {
     private(set) var notes: [Note] = []
     private(set) var editingNoteID: Int64?
     private(set) var scrollTargetID: Int64?
+    /// Unsaved new-note text stashed while walking the list with the arrow keys.
+    private var pendingDraft = ""
 
     private let store: NoteStore
     private var observation: AnyDatabaseCancellable?
@@ -22,6 +24,17 @@ final class NoteListModel {
 
     var visibleRowCount: Int {
         max(notes.count, 1)
+    }
+
+    /// Rendered top-to-bottom: oldest at the top, newest last so it sits directly
+    /// above the input. `notes` stays newest-first for arrow-key navigation.
+    var displayNotes: [Note] {
+        notes.reversed()
+    }
+
+    /// Newest note — the row nearest the input, and the one shown when collapsed.
+    var newestNote: Note? {
+        notes.first
     }
 
     var focusToken = 0
@@ -53,6 +66,7 @@ final class NoteListModel {
                 }
             } else if try store.append(draft) != nil {
                 draft = ""
+                pendingDraft = ""
             }
         } catch {
             NSLog("Failed to save note: \(error)")
@@ -81,6 +95,8 @@ final class NoteListModel {
                 guard nextIndex < list.count else { return }
                 beginEditing(list[nextIndex])
             } else {
+                // Stash the unsaved line so walking back down restores it, like shell history.
+                pendingDraft = draft
                 beginEditing(list[0])
             }
         } catch {
@@ -131,7 +147,8 @@ final class NoteListModel {
 
     private func clearEditing() {
         editingNoteID = nil
-        draft = ""
+        draft = pendingDraft
+        pendingDraft = ""
         scrollTargetID = nil
     }
 }

@@ -133,6 +133,12 @@ with a filled checkbox, strikethrough body, and reduced opacity. Nothing
 reorders and nothing disappears, so the row under the cursor never moves out
 from under a second click.
 
+The expanded list renders oldest at the top and newest at the bottom, so the most
+recent note sits directly above the input and ↑ walks visually upward into older
+notes. The store still returns newest-first (`created_at DESC, id DESC` — `id`
+breaks exact timestamp ties); only the rendering is reversed. The list auto-scrolls
+to the newest note unless the arrow keys are driving the selection.
+
 The collapsed card shows the single most recent note by `created_at`, regardless
 of whether it is complete. Its checkbox is live, so the common case of finishing
 the thing you just wrote down needs no expansion. When no notes exist yet, the

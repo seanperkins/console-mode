@@ -43,7 +43,7 @@ struct ConsoleView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(model.notes) { note in
+                        ForEach(model.displayNotes) { note in
                             NoteRow(
                                 note: note,
                                 isSelected: model.isNoteSelected(note),
@@ -51,7 +51,7 @@ struct ConsoleView: View {
                             )
                             .id(note.id)
                         }
-                        if model.notes.isEmpty {
+                        if model.displayNotes.isEmpty {
                             placeholderRow
                         }
                     }
@@ -62,8 +62,14 @@ struct ConsoleView: View {
                         proxy.scrollTo(noteID, anchor: .center)
                     }
                 }
+                .onChange(of: model.notes.count) { _, _ in
+                    scrollToNewest(proxy, animated: true)
+                }
+                .onAppear {
+                    scrollToNewest(proxy, animated: false)
+                }
             }
-        } else if let note = model.notes.first {
+        } else if let note = model.newestNote {
             NoteRow(
                 note: note,
                 isSelected: model.isNoteSelected(note),
@@ -71,6 +77,19 @@ struct ConsoleView: View {
             )
         } else {
             placeholderRow
+        }
+    }
+
+    /// Keep the newest note pinned just above the input unless the user is
+    /// walking the list with the arrow keys.
+    private func scrollToNewest(_ proxy: ScrollViewProxy, animated: Bool) {
+        guard model.editingNoteID == nil, let newestID = model.newestNote?.id else { return }
+        if animated {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(newestID, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(newestID, anchor: .bottom)
         }
     }
 
