@@ -28,8 +28,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        .frame(width: 420, height: 280, alignment: .top)
         .padding()
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             launchAtLogin = (SMAppService.mainApp.status == .enabled)
         }

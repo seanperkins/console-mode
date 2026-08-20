@@ -43,9 +43,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Console Mode", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Console Mode", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
         statusItem.menu = menu
     }
 
@@ -110,11 +114,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if settingsWindow == nil {
-            let view = SettingsView()
-            let controller = NSHostingController(rootView: view)
-            let window = NSWindow(contentViewController: controller)
+            let contentSize = NSSize(width: 460, height: 320)
+            let controller = NSHostingController(rootView: SettingsView())
+            controller.view.frame = NSRect(origin: .zero, size: contentSize)
+
+            let window = NSWindow(
+                contentRect: NSRect(origin: .zero, size: contentSize),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
             window.title = "Console Mode Settings"
-            window.styleMask = [.titled, .closable]
+            window.contentViewController = controller
+            window.contentMinSize = contentSize
+            window.isReleasedWhenClosed = false
             window.center()
             settingsWindow = window
         }
