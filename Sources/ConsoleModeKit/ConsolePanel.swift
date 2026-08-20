@@ -3,12 +3,12 @@ import SwiftUI
 
 @MainActor
 final class ConsolePanel: NSPanel {
-    private let model: NoteListModel
+    private let shell: ConsoleShell
     private var hostingView: NSHostingView<ConsoleRootView>!
     private(set) var isPanelVisible = false
 
-    init(model: NoteListModel) {
-        self.model = model
+    init(shell: ConsoleShell) {
+        self.shell = shell
         super.init(
             contentRect: .zero,
             styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
@@ -27,7 +27,7 @@ final class ConsolePanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
 
-        let rootView = ConsoleRootView(model: model) { [weak self] in
+        let rootView = ConsoleRootView(shell: shell) { [weak self] in
             guard let self, self.isPanelVisible else { return }
             self.refreshFrame(on: ScreenLocator.screenForMouse(), animated: true)
         }
@@ -56,7 +56,49 @@ final class ConsolePanel: NSPanel {
         applyFrame(on: screen, animated: true, appearing: true)
         makeKeyAndOrderFront(nil)
         isPanelVisible = true
-        model.requestInputFocus()
+        // Only the notes tab has a text field to focus.
+        if shell.activeTab == .notes {
+            shell.notes.requestInputFocus()
+        }
+    }
+
+    /// Command shortcuts must be intercepted here: the panel is nonactivating, so
+    /// SwiftUI key handling never sees them.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == .command, let characters = event.charactersIgnoringModifiers else {
+            return super.performKeyEquivalent(with: event)
+        }
+        switch characters.lowercased() {
+        case "1":
+            shell.select(.notes)
+            focusIfNeeded()
+            return true
+        case "2":
+            shell.select(.usage)
+            return true
+        case "r":
+            Task { await shell.usage.refresh() }
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // ⌃Tab cycles tabs; plain Tab still walks the input bar's key view loop.
+        if flags.contains(.control), event.keyCode == 48 {
+            shell.cycleTab()
+            focusIfNeeded()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    private func focusIfNeeded() {
+        guard shell.activeTab == .notes else { return }
+        shell.notes.requestInputFocus()
     }
 
     func hide() {
@@ -86,8 +128,10 @@ final class ConsolePanel: NSPanel {
         let metrics = ScreenLocator.metrics(for: screen)
         return PanelGeometry.frame(
             screen: metrics,
-            expanded: model.expanded,
-            visibleRowCount: model.visibleRowCount
+            tab: shell.activeTab,
+            expanded: shell.notes.expanded,
+            visibleRowCount: shell.visibleRowCount,
+            providerCount: shell.usageLineCount
         )
     }
 
@@ -129,15 +173,15 @@ final class ConsolePanel: NSPanel {
 
 @MainActor
 struct ConsoleRootView: View {
-    @Bindable var model: NoteListModel
-    let onExpandedChange: () -> Void
+    @Bindable var shell: ConsoleShell
+    let onLayoutChange: () -> Void
+
     var body: some View {
-        ConsoleView(model: model)
-            .onChange(of: model.expanded) { _, _ in
-                onExpandedChange()
-            }
-            .onChange(of: model.notes.count) { _, _ in
-                onExpandedChange()
-            }
+        ConsoleView(shell: shell)
+            .onChange(of: shell.notes.expanded) { _, _ in onLayoutChange() }
+            .onChange(of: shell.notes.notes.count) { _, _ in onLayoutChange() }
+            // Tabs and provider count both change the card height.
+            .onChange(of: shell.activeTab) { _, _ in onLayoutChange() }
+            .onChange(of: shell.usageLineCount) { _, _ in onLayoutChange() }
     }
 }

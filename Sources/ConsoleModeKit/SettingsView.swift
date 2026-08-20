@@ -3,12 +3,15 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
-    @Bindable var model: NoteListModel
+    @Bindable var shell: ConsoleShell
 
     @State private var launchAtLoginError: String?
     @State private var config = TaggerSettings.current
+    @State private var usage = UsageSettings.current
     @State private var isConfirmingClearAll = false
     @State private var pendingDeleteCount = 0
+
+    private var model: NoteListModel { shell.notes }
 
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
@@ -23,14 +26,120 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 shortcutSection
+                appearanceSection
+                usageSection
                 startupSection
                 taggingSection
                 storageSection
             }
             .padding(24)
-            .frame(width: 460, alignment: .topLeading)
+            .frame(width: 520, alignment: .topLeading)
         }
-        .frame(width: 460, height: 460)
+        .frame(width: 520, height: 620)
+    }
+
+    // MARK: - Appearance
+
+    private var appearanceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Appearance")
+                .font(.headline)
+
+            Picker("Theme:", selection: themeBinding) {
+                ForEach(ThemeID.allCases) { id in
+                    Text(id.title).tag(id)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text(shell.themeID.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ThemePreview(tokens: shell.theme)
+        }
+    }
+
+    /// Writes through the shell so the live panel restyles immediately.
+    private var themeBinding: Binding<ThemeID> {
+        Binding(
+            get: { shell.themeID },
+            set: { shell.applyTheme($0) }
+        )
+    }
+
+    // MARK: - Usage
+
+    private var usageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("LLM usage")
+                .font(.headline)
+
+            Toggle("Show the Usage tab", isOn: $usage.isEnabled)
+            Toggle("Warn at 20%, 10% and 5% remaining", isOn: $usage.alertsEnabled)
+                .disabled(!usage.isEnabled)
+
+            HStack {
+                Text("Refresh every")
+                Stepper(value: $usage.pollMinutes, in: 1...60) {
+                    Text("\(usage.pollMinutes) min")
+                        .monospacedDigit()
+                }
+                .fixedSize()
+            }
+            .disabled(!usage.isEnabled)
+
+            HStack {
+                Text("Alert shows for")
+                Stepper(value: $usage.alertSeconds, in: 2...30, step: 1) {
+                    Text("\(Int(usage.alertSeconds))s")
+                        .monospacedDigit()
+                }
+                .fixedSize()
+            }
+            .disabled(!usage.isEnabled || !usage.alertsEnabled)
+
+            TextField("omp path (blank = auto-detect)", text: $usage.ompPath)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!usage.isEnabled)
+
+            HStack(spacing: 10) {
+                Button("Refresh now") {
+                    Task { await shell.usage.refresh() }
+                }
+                .disabled(!usage.isEnabled || shell.usage.isRefreshing)
+
+                Button("Re-arm warnings") {
+                    shell.usage.resetFiredThresholds()
+                }
+                .help("Allow already-fired thresholds to alert again")
+
+                if shell.usage.isRefreshing {
+                    ProgressView().controlSize(.small)
+                }
+            }
+
+            Text(usageStatusText)
+                .font(.caption)
+                .foregroundStyle(shell.usage.lastError == nil ? Color.secondary : Color.red)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onChange(of: usage) { previous, updated in
+            UsageSettings.current = updated
+            if previous.isEnabled != updated.isEnabled {
+                shell.setUsageEnabled(updated.isEnabled)
+            }
+        }
+    }
+
+    private var usageStatusText: String {
+        if let error = shell.usage.lastError { return error }
+        let detected = UsageClient(executableOverride: usage.ompPath).resolveExecutable()
+        guard let detected else { return "omp not found — set the path above." }
+        let providers = shell.usage.rollup.count
+        return "Using \(detected)" + (providers > 0 ? " · \(providers) providers" : "")
     }
 
     private var shortcutSection: some View {

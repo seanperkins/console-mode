@@ -28,7 +28,8 @@ let package = Package(
         .testTarget(
             name: "ConsoleModeTests",
             dependencies: ["ConsoleModeKit"],
-            path: "Tests/ConsoleModeTests"
+            path: "Tests/ConsoleModeTests",
+            resources: [.copy("Fixtures")]
         ),
     ]
 )

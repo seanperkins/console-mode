@@ -33,6 +33,9 @@ final class FocusableButton: NSButton {
 /// Layout is checkbox | text field | expand chevron.
 struct ConsoleInputBar: NSViewRepresentable {
     @Bindable var model: NoteListModel
+    /// Passed in rather than read from the environment: `updateNSView` needs the
+    /// tokens to restyle AppKit views when the preset changes.
+    var theme: ThemeTokens
 
     func makeCoordinator() -> Coordinator {
         Coordinator(model: model)
@@ -60,7 +63,8 @@ struct ConsoleInputBar: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.font = theme.nsBodyFont
+        field.textColor = theme.nsTextPrimary
         field.placeholderString = "New note…"
         field.delegate = coordinator
 
@@ -123,6 +127,8 @@ struct ConsoleInputBar: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         context.coordinator.model = model
+        // Re-apply tokens so switching preset restyles the live field.
+        context.coordinator.applyTheme(theme)
         context.coordinator.syncFromModel()
 
         if context.coordinator.lastFocusToken != model.focusToken {
@@ -154,6 +160,25 @@ struct ConsoleInputBar: NSViewRepresentable {
         weak var field: NSTextField?
         weak var chevron: FocusableButton?
         var lastFocusToken: Int
+        private var theme: ThemeTokens = .system
+
+        /// Tokens reach AppKit here; SwiftUI's environment does not cross into
+        /// NSView subclasses.
+        func applyTheme(_ tokens: ThemeTokens) {
+            guard tokens != theme else { return }
+            theme = tokens
+            field?.font = tokens.nsBodyFont
+            field?.textColor = tokens.nsTextPrimary
+            chevron?.contentTintColor = tokens.nsTextSecondary
+            applyCaretColor()
+        }
+
+        /// `NSTextField` has no caret colour; it belongs to the shared field
+        /// editor, which only exists while the field is focused.
+        func applyCaretColor() {
+            guard let editor = field?.currentEditor() as? NSTextView else { return }
+            editor.insertionPointColor = theme.nsAccent
+        }
 
         init(model: NoteListModel) {
             self.model = model
@@ -161,6 +186,7 @@ struct ConsoleInputBar: NSViewRepresentable {
         }
 
         func syncFromModel() {
+            applyCaretColor()
             if let field, field.stringValue != model.draft {
                 field.stringValue = model.draft
             }
@@ -178,7 +204,7 @@ struct ConsoleInputBar: NSViewRepresentable {
             // Dimmed while composing a new note: there is nothing to complete yet.
             let editing = model.isEditingExistingNote
             checkbox?.image = ConsoleInputBar.checkboxImage(completed: model.isEditingNoteCompleted)
-            checkbox?.contentTintColor = editing ? nil : .tertiaryLabelColor
+            checkbox?.contentTintColor = editing ? theme.nsAccent : theme.nsTextSecondary.withAlphaComponent(0.5)
             checkbox?.toolTip = editing
                 ? (model.isEditingNoteCompleted ? "Mark note incomplete" : "Mark note complete")
                 : "Press ↑ to select a note, then toggle it here"

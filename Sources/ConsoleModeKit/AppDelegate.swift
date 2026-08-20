@@ -13,12 +13,15 @@ private final class SettingsWindowDelegate: NSObject, NSWindowDelegate {
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: NoteStore!
     private var model: NoteListModel!
+    private var usage: UsageMonitor!
+    private var shell: ConsoleShell!
     private var panel: ConsolePanel!
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
     private let settingsWindowDelegate = SettingsWindowDelegate()
     private var outsideClickMonitor: Any?
     private var escapeMonitor: Any?
+    private var alertDismissTask: Task<Void, Never>?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         AppMenu.install(
@@ -46,11 +49,74 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.terminate(nil)
             }
         }
-        panel = ConsolePanel(model: model)
+        usage = UsageMonitor()
+        usage.onAlert = { [weak self] alert in
+            self?.presentUsageAlert(alert)
+        }
+        shell = ConsoleShell(notes: model, usage: usage)
+
+        panel = ConsolePanel(shell: shell)
         panel.prewarm(on: ScreenLocator.screenForMouse())
 
         installStatusItem()
         installHotkey()
+
+        if UsageSettings.current.isEnabled {
+            usage.start()
+            observeSeverityForStatusItem()
+        }
+    }
+
+    // MARK: - Usage alerts
+
+    /// A crossing pops the console onto the usage tab briefly, then puts it back.
+    /// Transient by design: the lasting signal is the menu bar tint.
+    private func presentUsageAlert(_ alert: UsageAlert) {
+        updateStatusItemAppearance()
+
+        let seconds = UsageSettings.current.alertSeconds
+        shell.select(.usage)
+        if !panel.isPanelVisible {
+            panel.show(on: ScreenLocator.screenForMouse())
+            installDismissMonitors()
+        }
+
+        alertDismissTask?.cancel()
+        alertDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled, let self else { return }
+            self.usage.clearAlert()
+            // Leave it up if the user switched tabs, meaning they took over.
+            if self.panel.isPanelVisible, self.shell.activeTab == .usage {
+                self.dismissConsole()
+            }
+        }
+    }
+
+    /// Repaint the menu bar whenever the worst severity changes.
+    private func observeSeverityForStatusItem() {
+        withObservationTracking {
+            _ = usage.worstSeverity
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.updateStatusItemAppearance()
+                self?.observeSeverityForStatusItem()
+            }
+        }
+    }
+
+    private func updateStatusItemAppearance() {
+        guard let button = statusItem?.button else { return }
+        let severity = usage.worstSeverity
+        let isLow = severity > .healthy
+        button.image = NSImage(
+            systemSymbolName: isLow ? "gauge.with.needle" : "note.text",
+            accessibilityDescription: "Console Mode"
+        )
+        button.contentTintColor = isLow ? NSColor(shell.theme.color(for: severity)) : nil
+        button.toolTip = isLow
+            ? usage.rollup.first.map { "\($0.displayName): \(UsageAlert.format($0.remainingFraction ?? 0)) left" }
+            : nil
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -133,8 +199,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if settingsWindow == nil {
-            let contentSize = NSSize(width: 460, height: 460)
-            let hostingView = NSHostingView(rootView: SettingsView(model: model))
+            let contentSize = NSSize(width: 520, height: 620)
+            let hostingView = NSHostingView(rootView: SettingsView(shell: shell))
             hostingView.frame = NSRect(origin: .zero, size: contentSize)
             hostingView.autoresizingMask = [.width, .height]
 

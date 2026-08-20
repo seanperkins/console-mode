@@ -10,10 +10,17 @@ enum PanelGeometry {
     static let dividerHeight: CGFloat = 1
     static let cornerRadius: CGFloat = 16
     static let dropOffset: CGFloat = 24
+    /// Compact tab strip above the content on every tab.
+    static let tabBarHeight: CGFloat = 28
+    /// One provider per line in the usage tab.
+    static let usageRowHeight: CGFloat = 30
+    /// Footer line carrying refresh time and errors.
+    static let usageFooterHeight: CGFloat = 18
 
     static func contentHeight(visibleRowCount: Int) -> CGFloat {
         let rows = max(visibleRowCount, 1)
-        return verticalPadding * 2
+        return tabBarHeight
+            + verticalPadding * 2
             + CGFloat(rows) * rowHeight
             + dividerHeight
             + inputHeight
@@ -23,16 +30,48 @@ enum PanelGeometry {
         contentHeight(visibleRowCount: 1)
     }
 
-    static func panelHeight(visibleRowCount: Int, screenVisibleHeight: CGFloat, expanded: Bool) -> CGFloat {
-        guard expanded else { return collapsedHeight() }
-        return min(contentHeight(visibleRowCount: visibleRowCount), screenVisibleHeight / 2)
+    /// One line per provider, so the height is a direct function of how many
+    /// accounts `omp usage` reports.
+    static func usageHeight(providerCount: Int) -> CGFloat {
+        let lines = max(providerCount, 1)
+        return tabBarHeight
+            + verticalPadding * 2
+            + CGFloat(lines) * usageRowHeight
+            + dividerHeight
+            + usageFooterHeight
     }
 
-    static func frame(screen: ScreenMetrics, expanded: Bool, visibleRowCount: Int) -> CGRect {
+    static func panelHeight(
+        tab: ConsoleTab,
+        expanded: Bool,
+        visibleRowCount: Int,
+        providerCount: Int,
+        screenVisibleHeight: CGFloat
+    ) -> CGFloat {
+        let desired: CGFloat
+        switch tab {
+        case .notes:
+            desired = expanded ? contentHeight(visibleRowCount: visibleRowCount) : collapsedHeight()
+        case .usage:
+            desired = usageHeight(providerCount: providerCount)
+        }
+        // Never taller than half the screen, on either tab.
+        return min(desired, screenVisibleHeight / 2)
+    }
+
+    static func frame(
+        screen: ScreenMetrics,
+        tab: ConsoleTab,
+        expanded: Bool,
+        visibleRowCount: Int,
+        providerCount: Int
+    ) -> CGRect {
         let height = panelHeight(
+            tab: tab,
+            expanded: expanded,
             visibleRowCount: visibleRowCount,
-            screenVisibleHeight: screen.visibleHeight,
-            expanded: expanded
+            providerCount: providerCount,
+            screenVisibleHeight: screen.visibleHeight
         )
         let x = screen.visibleOriginX + (screen.visibleWidth - cardWidth) / 2
         let y = screen.visibleOriginY + screen.visibleHeight - topGapBelowMenuBar - height
