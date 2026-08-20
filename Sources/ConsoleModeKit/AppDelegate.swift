@@ -21,6 +21,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var escapeMonitor: Any?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        AppMenu.install(
+            settingsTarget: self,
+            settingsAction: #selector(openSettings),
+            quitTarget: self,
+            quitAction: #selector(quit)
+        )
+
         do {
             store = try NoteStore.openDefault()
         } catch {
