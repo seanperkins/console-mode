@@ -136,8 +136,8 @@ from under a second click.
 The collapsed card shows the single most recent note by `created_at`, regardless
 of whether it is complete. Its checkbox is live, so the common case of finishing
 the thing you just wrote down needs no expansion. When no notes exist yet, the
-row is replaced by placeholder text and the card keeps its 92pt height so the
-input never shifts position between the first launch and every launch after.
+row is replaced by placeholder text and the card keeps its collapsed height so
+the input never shifts position between the first launch and every launch after.
 
 ## Geometry and motion
 
@@ -148,8 +148,10 @@ testable without a screen.
 - **Horizontal position:** centered on the screen containing the cursor
   (`NSEvent.mouseLocation`), not unconditionally the main display.
 - **Top edge:** `screen.visibleFrame.maxY - 120`.
-- **Collapsed height:** 92pt — one previous-note row (28) + input (36) + 12pt
-  padding top and bottom + a hairline divider.
+- **Collapsed height:** 89pt, which is exactly `contentHeight(rowCount: 1)` —
+  one row (28) + input (36) + hairline divider (1) + 12pt padding top and bottom.
+  Collapsed and expanded heights come from the same formula rather than a
+  separate constant, so the two can never drift apart.
 - **Expanded height:** `min(contentHeight, screen.visibleFrame.height / 2)`.
   Content beyond that scrolls. This clamp is the only non-obvious geometry, and
   it gets direct test coverage.
