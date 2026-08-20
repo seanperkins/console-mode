@@ -36,5 +36,5 @@ import Testing
     #expect(frame.width == 640)
     #expect(frame.height == 89)
     #expect(frame.origin.x == CGFloat(100 + (1_800 - 640) / 2))
-    #expect(frame.origin.y == CGFloat(1_100 - 120 - 89))
+    #expect(frame.origin.y == CGFloat(1_100 - 89))
 }

@@ -11,7 +11,7 @@ final class ConsolePanel: NSPanel {
         self.model = model
         super.init(
             contentRect: .zero,
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )

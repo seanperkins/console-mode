@@ -2,7 +2,8 @@ import CoreGraphics
 
 enum PanelGeometry {
     static let cardWidth: CGFloat = 640
-    static let topInset: CGFloat = 120
+    /// Gap between the menu bar and the card top (visible frame maxY).
+    static let topGapBelowMenuBar: CGFloat = 0
     static let rowHeight: CGFloat = 28
     static let inputHeight: CGFloat = 36
     static let verticalPadding: CGFloat = 12
@@ -34,7 +35,7 @@ enum PanelGeometry {
             expanded: expanded
         )
         let x = screen.visibleOriginX + (screen.visibleWidth - cardWidth) / 2
-        let y = screen.visibleOriginY + screen.visibleHeight - topInset - height
+        let y = screen.visibleOriginY + screen.visibleHeight - topGapBelowMenuBar - height
         return CGRect(x: x, y: y, width: cardWidth, height: height)
     }
 }
