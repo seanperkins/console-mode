@@ -259,22 +259,15 @@ the prior app. Claims about the UI come from watching it run.
 Three unknowns, each with a concrete fallback. All three resolve during
 implementation, not planning.
 
-1. **Does SwiftUI `.glassEffect()` sample behind-window content in a transparent
-   `NSPanel`?** Unverified. If it renders as flat translucency instead of true
-   glass, fall back to an `NSVisualEffectView` with `.hudWindow` material and
-   `.behindWindow` blending as the panel's content root, with the SwiftUI tree
-   layered above it.
+1. **Backdrop sampling** — resolved by using `NSVisualEffectView` (`hudWindow` +
+   `behindWindow`) as the panel content root instead of SwiftUI `.glassEffect()`.
 
-2. **Input focus** uses an `NSTextField` via `NSViewRepresentable`, with
-   `makeFirstResponder` on summon — not SwiftUI `TextField` + `@FocusState`.
+2. **Input focus** — resolved with `NoteInputField` (`NSTextField` +
+   `makeFirstResponder` on summon).
 
-3. **Animating the window frame while glass re-samples may stutter.** There is a
-   [confirmed macOS 26.2 defect](https://developer.apple.com/forums/thread/810314)
-   where `NSGlassEffectView` caches its backdrop and stops updating when a window
-   moves — which is why the AppKit glass route is rejected outright. If the
-   SwiftUI route shows similar artifacts during the drop-in, switch the animation
-   from the window frame to alpha plus an internal content offset, keeping the
-   window frame static.
+3. **Frame animation stutter** — watch during use; panel uses `NSVisualEffectView`,
+   not private `NSGlassEffectView`. If expand/dismiss stutters, shorten motion or
+   keep the window frame static and animate alpha only.
 
 ## Reference implementations
 
