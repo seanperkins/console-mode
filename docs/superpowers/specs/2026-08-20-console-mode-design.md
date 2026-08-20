@@ -109,8 +109,9 @@ is strictly more information than a boolean flag.
   - `UPDATE note SET completed_at = ? WHERE id = ?`
   - `SELECT * FROM note ORDER BY created_at DESC LIMIT ?` — limit 1 collapsed, 200 expanded
 
-Bodies are trimmed of surrounding whitespace before insert. An empty or
-whitespace-only draft is discarded rather than stored.
+`NoteStore.append` owns normalization: it trims surrounding whitespace and
+returns `nil` without touching the database when the result is empty. Callers
+never pre-validate, so there is exactly one place an empty note can be rejected.
 
 ## Interaction
 
@@ -131,6 +132,12 @@ A completed note stays exactly where it is in the chronological list, rendered
 with a filled checkbox, strikethrough body, and reduced opacity. Nothing
 reorders and nothing disappears, so the row under the cursor never moves out
 from under a second click.
+
+The collapsed card shows the single most recent note by `created_at`, regardless
+of whether it is complete. Its checkbox is live, so the common case of finishing
+the thing you just wrote down needs no expansion. When no notes exist yet, the
+row is replaced by placeholder text and the card keeps its 92pt height so the
+input never shifts position between the first launch and every launch after.
 
 ## Geometry and motion
 
