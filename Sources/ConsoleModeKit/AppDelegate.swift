@@ -124,8 +124,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if settingsWindow == nil {
-            let contentSize = NSSize(width: 460, height: 320)
-            let hostingView = NSHostingView(rootView: SettingsView())
+            let contentSize = NSSize(width: 460, height: 460)
+            let hostingView = NSHostingView(rootView: SettingsView(model: model))
             hostingView.frame = NSRect(origin: .zero, size: contentSize)
             hostingView.autoresizingMask = [.width, .height]
 

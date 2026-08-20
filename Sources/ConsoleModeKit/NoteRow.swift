@@ -22,6 +22,21 @@ struct NoteRow: View {
 
             Spacer(minLength: 8)
 
+            if let project = note.project, !project.isEmpty {
+                Text(project)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.secondary.opacity(0.14))
+                    )
+                    .opacity(note.isCompleted ? 0.4 : 1)
+                    .accessibilityLabel("Project \(project)")
+            }
+
             Text(note.createdDate.formatted(date: .omitted, time: .shortened))
                 .font(.caption)
                 .foregroundStyle(.secondary)

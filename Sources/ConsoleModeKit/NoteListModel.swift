@@ -12,6 +12,8 @@ final class NoteListModel {
     private(set) var scrollTargetID: Int64?
     /// Unsaved new-note text stashed while walking the list with the arrow keys.
     private var pendingDraft = ""
+    private(set) var isBackfilling = false
+    var tagStatus: String?
 
     private let store: NoteStore
     private var observation: AnyDatabaseCancellable?
@@ -61,15 +63,56 @@ final class NoteListModel {
     func commitDraft() {
         do {
             if let editingNoteID {
-                if try store.updateBody(id: editingNoteID, rawBody: draft) != nil {
+                if let updated = try store.updateBody(id: editingNoteID, rawBody: draft) {
                     clearEditing()
+                    // Body changed, so any existing label may no longer apply.
+                    scheduleTagging(noteID: editingNoteID, body: updated.body)
                 }
-            } else if try store.append(draft) != nil {
+            } else if let saved = try store.append(draft) {
                 draft = ""
                 pendingDraft = ""
+                if let id = saved.id {
+                    scheduleTagging(noteID: id, body: saved.body)
+                }
             }
         } catch {
             NSLog("Failed to save note: \(error)")
+        }
+    }
+
+    // MARK: - Project tagging
+
+    /// Fire-and-forget so capture never waits on the model (~5s per call).
+    private func scheduleTagging(noteID: Int64, body: String) {
+        let config = TaggerSettings.current
+        guard config.isEnabled else { return }
+
+        let service = NoteTagService(store: store)
+        Task.detached(priority: .utility) {
+            await service.tag(noteID: noteID, body: body, config: config)
+        }
+    }
+
+    /// Label notes the tagger has never seen. Surfaced from Settings.
+    func backfillTags(limit: Int = 200) {
+        guard !isBackfilling else { return }
+        let config = TaggerSettings.current
+        guard config.isEnabled else {
+            tagStatus = "Tagging is turned off."
+            return
+        }
+
+        isBackfilling = true
+        tagStatus = "Tagging…"
+
+        let service = NoteTagService(store: store)
+        Task { [weak self] in
+            let labelled = await service.backfill(limit: limit, config: config)
+            let remaining = service.untaggedCount()
+            self?.isBackfilling = false
+            self?.tagStatus = remaining == 0
+                ? "Tagged \(labelled) note\(labelled == 1 ? "" : "s")."
+                : "Tagged \(labelled); \(remaining) still pending."
         }
     }
 

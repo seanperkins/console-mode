@@ -79,6 +79,46 @@ final class NoteStore: @unchecked Sendable {
         }
     }
 
+    /// Record the tagger's verdict. `project` nil means "ran, no label" — `tagged_at`
+    /// still gets set so the note is not retried on every launch.
+    func setProject(id: Int64, project: String?, confidence: Double?, at date: Date = Date()) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE note SET project = ?, project_confidence = ?, tagged_at = ? WHERE id = ?",
+                arguments: [project, confidence, date.timeIntervalSince1970, id]
+            )
+        }
+    }
+
+    /// Oldest-first so a backfill works through history in a predictable order.
+    func fetchUntagged(limit: Int) throws -> [Note] {
+        try dbQueue.read { db in
+            try Note
+                .filter(Column("tagged_at") == nil)
+                .order(Column("created_at").asc, Column("id").asc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    /// Existing vocabulary, most-used first, so the tagger reuses labels instead of
+    /// inventing near-duplicates.
+    func knownProjects(limit: Int = 40) throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                SELECT project FROM note
+                WHERE project IS NOT NULL AND project <> ''
+                GROUP BY project
+                ORDER BY COUNT(*) DESC, MAX(created_at) DESC
+                LIMIT ?
+                """,
+                arguments: [limit]
+            )
+        }
+    }
+
     /// Newest first, with `id` breaking exact `created_at` ties so the display list
     /// and the arrow-key navigation list can never disagree.
     private static let newestFirst = [Column("created_at").desc, Column("id").desc]
@@ -120,6 +160,16 @@ final class NoteStore: @unchecked Sendable {
                 table.column("completed_at", .double)
             }
             try db.execute(sql: "CREATE INDEX note_created_at_idx ON note(created_at DESC)")
+        }
+        migrator.registerMigration("v2_project_tags") { db in
+            // `project` is the label; `tagged_at` records that the tagger ran at all,
+            // so a note it declined to label is not retried forever.
+            try db.alter(table: "note") { table in
+                table.add(column: "project", .text)
+                table.add(column: "project_confidence", .double)
+                table.add(column: "tagged_at", .double)
+            }
+            try db.execute(sql: "CREATE INDEX note_project_idx ON note(project)")
         }
         return migrator
     }
