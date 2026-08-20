@@ -15,12 +15,16 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Shortcut") {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Shortcut")
+                    .font(.headline)
                 KeyboardShortcuts.Recorder("Toggle console:", name: .toggleConsole)
             }
 
-            Section("Startup") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Startup")
+                    .font(.headline)
                 Toggle("Open at login", isOn: launchAtLoginBinding)
 
                 if let launchAtLoginError {
@@ -38,19 +42,19 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Storage") {
-                LabeledContent("Database") {
-                    Text(NoteStore.defaultDatabaseURL().path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Storage")
+                    .font(.headline)
+                Text(NoteStore.defaultDatabaseURL().path)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
+
+            Spacer(minLength: 0)
         }
-        .formStyle(.grouped)
-        .frame(width: 420, height: 280, alignment: .top)
-        .padding()
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(24)
+        .frame(width: 460, height: 320, alignment: .topLeading)
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {

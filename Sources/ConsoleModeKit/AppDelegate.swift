@@ -3,12 +3,20 @@ import KeyboardShortcuts
 import SwiftUI
 
 @MainActor
+private final class SettingsWindowDelegate: NSObject, NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+@MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: NoteStore!
     private var model: NoteListModel!
     private var panel: ConsolePanel!
     private var statusItem: NSStatusItem!
     private var settingsWindow: NSWindow?
+    private let settingsWindowDelegate = SettingsWindowDelegate()
     private var outsideClickMonitor: Any?
     private var escapeMonitor: Any?
 
@@ -110,8 +118,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openSettings() {
         if settingsWindow == nil {
             let contentSize = NSSize(width: 460, height: 320)
-            let controller = NSHostingController(rootView: SettingsView())
-            controller.view.frame = NSRect(origin: .zero, size: contentSize)
+            let hostingView = NSHostingView(rootView: SettingsView())
+            hostingView.frame = NSRect(origin: .zero, size: contentSize)
+            hostingView.autoresizingMask = [.width, .height]
 
             let window = NSWindow(
                 contentRect: NSRect(origin: .zero, size: contentSize),
@@ -120,14 +129,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 defer: false
             )
             window.title = "Console Mode Settings"
-            window.contentViewController = controller
+            window.contentView = hostingView
             window.contentMinSize = contentSize
             window.isReleasedWhenClosed = false
+            window.delegate = settingsWindowDelegate
             window.center()
             settingsWindow = window
         }
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsWindow?.contentView?.layoutSubtreeIfNeeded()
     }
 
     @objc private func quit() {
