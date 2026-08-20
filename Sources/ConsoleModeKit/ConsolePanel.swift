@@ -57,6 +57,9 @@ final class ConsolePanel: NSPanel {
         makeKeyAndOrderFront(nil)
         isPanelVisible = true
         model.requestInputFocus()
+        DispatchQueue.main.async { [weak self] in
+            self?.makeFirstResponder(self?.hostingView)
+        }
     }
 
     func hide() {

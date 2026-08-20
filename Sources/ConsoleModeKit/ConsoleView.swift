@@ -1,11 +1,6 @@
 import AppKit
 import SwiftUI
 
-private enum InputBarFocus: Hashable {
-    case field
-    case expand
-}
-
 private struct CardBackground: View {
     private var reduceTransparency: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
@@ -26,7 +21,6 @@ private struct CardBackground: View {
 
 struct ConsoleView: View {
     @Bindable var model: NoteListModel
-    @FocusState private var barFocus: InputBarFocus?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,9 +35,6 @@ struct ConsoleView: View {
         .frame(width: PanelGeometry.cardWidth)
         .background(CardBackground())
         .clipShape(RoundedRectangle(cornerRadius: PanelGeometry.cornerRadius, style: .continuous))
-        .onChange(of: model.focusToken) { _, _ in
-            barFocus = .field
-        }
     }
 
     @ViewBuilder
@@ -97,49 +88,7 @@ struct ConsoleView: View {
     }
 
     private var inputBar: some View {
-        HStack(spacing: 8) {
-            TextField(inputPlaceholder, text: $model.draft)
-                .textFieldStyle(.plain)
-                .font(.body)
-                .focused($barFocus, equals: .field)
-                .onSubmit {
-                    model.commitDraft()
-                }
-                .onKeyPress(.upArrow) {
-                    model.navigateToOlderNote()
-                    return .handled
-                }
-                .onKeyPress(.downArrow) {
-                    model.navigateToNewerNote()
-                    return .handled
-                }
-
-            Button {
-                model.toggleExpanded()
-            } label: {
-                Image(systemName: model.expanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-            .help(model.expanded ? "Collapse list" : "Expand list")
-            .focusable()
-            .focused($barFocus, equals: .expand)
-            .onKeyPress(.return) {
-                model.toggleExpanded()
-                return .handled
-            }
-            .onKeyPress(.space) {
-                model.toggleExpanded()
-                return .handled
-            }
-        }
-        .frame(height: PanelGeometry.inputHeight)
-        .padding(.horizontal, 12)
-    }
-
-    private var inputPlaceholder: String {
-        model.isEditingExistingNote ? "Edit note…" : "New note…"
+        ConsoleInputBar(model: model)
+            .padding(.horizontal, 12)
     }
 }
