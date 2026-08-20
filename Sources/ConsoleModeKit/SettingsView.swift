@@ -3,7 +3,16 @@ import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("launchAtLogin") private var launchAtLogin = false
+    @State private var launchAtLoginError: String?
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { SMAppService.mainApp.status == .enabled },
+            set: { enabled in
+                setLaunchAtLogin(enabled)
+            }
+        )
+    }
 
     var body: some View {
         Form {
@@ -12,10 +21,21 @@ struct SettingsView: View {
             }
 
             Section("Startup") {
-                Toggle("Open at login", isOn: $launchAtLogin)
-                    .onChange(of: launchAtLogin) { _, enabled in
-                        updateLaunchAtLogin(enabled)
-                    }
+                Toggle("Open at login", isOn: launchAtLoginBinding)
+
+                if let launchAtLoginError {
+                    Text(launchAtLoginError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+
+                    Text(
+                        "If you run from the repo, `make bundle` deletes and recreates ConsoleMode.app — " +
+                            "the login item may point at a stale path. Toggle off, rebuild, then toggle on again."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
 
             Section("Storage") {
@@ -31,12 +51,10 @@ struct SettingsView: View {
         .frame(width: 420, height: 280, alignment: .top)
         .padding()
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear {
-            launchAtLogin = (SMAppService.mainApp.status == .enabled)
-        }
     }
 
-    private func updateLaunchAtLogin(_ enabled: Bool) {
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        launchAtLoginError = nil
         do {
             if enabled {
                 try SMAppService.mainApp.register()
@@ -44,8 +62,8 @@ struct SettingsView: View {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
+            launchAtLoginError = error.localizedDescription
             NSLog("Launch at login failed: \(error)")
-            launchAtLogin = (SMAppService.mainApp.status == .enabled)
         }
     }
 }
