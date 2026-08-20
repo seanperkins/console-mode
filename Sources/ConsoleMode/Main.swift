@@ -1,4 +1,5 @@
 import AppKit
+import ConsoleModeKit
 
 @main
 enum Main {

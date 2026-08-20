@@ -12,17 +12,22 @@ let package = Package(
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts.git", from: "1.10.0"),
     ],
     targets: [
-        .executableTarget(
-            name: "ConsoleMode",
+        .target(
+            name: "ConsoleModeKit",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
             ],
+            path: "Sources/ConsoleModeKit"
+        ),
+        .executableTarget(
+            name: "ConsoleMode",
+            dependencies: ["ConsoleModeKit"],
             path: "Sources/ConsoleMode"
         ),
         .testTarget(
             name: "ConsoleModeTests",
-            dependencies: ["ConsoleMode"],
+            dependencies: ["ConsoleModeKit"],
             path: "Tests/ConsoleModeTests"
         ),
     ]
