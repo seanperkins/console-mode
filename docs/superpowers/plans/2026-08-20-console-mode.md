@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a macOS 26 menu-bar note console summoned by a global hotkey, with SQLite-backed notes, Liquid Glass UI, and sub-50ms summon latency.
+**Goal:** Ship a macOS 26 menu-bar note console summoned by a global hotkey, with SQLite-backed notes and a frosted HUD-style panel.
 
 **Architecture:** AppKit `NSPanel` shell hosts SwiftUI content. `NoteStore` (GRDB) is the single source of truth; `ValueObservation` pushes list updates. `PanelGeometry` is pure math, tested without `NSScreen`.
 
@@ -75,7 +75,7 @@ Commit: `feat: ConsoleView with Liquid Glass card and note rows`.
 
 ### Task 6: Hotkey + status item
 
-`HotkeyName.swift`, signpost, ⌃⇧ toggle, Settings/Quit menu, click-outside + Esc dismiss.
+`HotkeyName.swift`, ⌃⇧ `onKeyDown` toggle, Settings/Quit menu, click-outside + Esc dismiss.
 
 Manual smoke: hotkey, Return, checkbox, expand, dismiss.
 
@@ -93,6 +93,6 @@ Commit: `feat: settings with hotkey recorder and launch at login`.
 
 ### Task 8: README + latency
 
-OSSignposter median summon time (<50ms target), full `swift test`, README with `make run`.
+Full `swift test`, README with `make run`.
 
 Commit: `docs: README and summon latency notes`.

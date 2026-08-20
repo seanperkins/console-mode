@@ -1,12 +1,9 @@
 import AppKit
 import KeyboardShortcuts
-import os
 import SwiftUI
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let signposter = OSSignposter(subsystem: "com.seanperkins.ConsoleMode", category: "Summon")
-
     private var store: NoteStore!
     private var model: NoteListModel!
     private var panel: ConsolePanel!
@@ -66,10 +63,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if panel.isPanelVisible {
             dismissConsole()
         } else {
-            let state = signposter.beginInterval("Summon")
-            panel.show(on: screen, onFirstDisplay: { [signposter] in
-                signposter.endInterval("Summon", state)
-            })
+            panel.show(on: screen)
             installDismissMonitors()
         }
     }

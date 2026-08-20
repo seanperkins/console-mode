@@ -188,12 +188,10 @@ must never be stacked on glass because glass cannot sample glass. Rows,
 checkboxes, timestamps, and body text are therefore plain content drawn on top of
 a single glass panel.
 
-```swift
-GlassEffectContainer {
-    VStack(spacing: 0) { /* previous note, divider, input */ }
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
-}
-```
+The card chrome is a hairline border in SwiftUI; the frosted backdrop is an
+`NSVisualEffectView` on the panel (`hudWindow` + `behindWindow`) so content behind
+the transparent window is sampled correctly. SwiftUI `.glassEffect()` on a transparent
+`NSPanel` is not used — it does not reliably sample behind-window content.
 
 **Reduce Transparency.** macOS 26 users can tune system glassiness, and the
 setting must be honored. When
@@ -218,8 +216,8 @@ The requirement is that summoning never feels like launching. Made concrete:
 3. The database opens once at launch. GRDB caches prepared statements.
 4. Zero timers and zero polling at idle. The only live objects are the hotkey
    handler and the status item.
-5. **Budget: hotkey to first frame under 50ms.** Instrumented with
-   `OSSignposter`. The measured number gets reported rather than asserted.
+5. Global hotkey uses `onKeyDown` so summon fires on press, not release.
+   No latency budget is claimed until measured with a trustworthy method.
 
 ## Settings and lifecycle
 
@@ -267,11 +265,8 @@ implementation, not planning.
    `.behindWindow` blending as the panel's content root, with the SwiftUI tree
    layered above it.
 
-2. **SwiftUI `TextField` focus inside a non-activating panel is historically
-   fiddly.** Mitigation: explicitly `makeFirstResponder` on the hosting view and
-   set `@FocusState` when showing. If SwiftUI focus proves unreliable, wrap an
-   `NSTextField` in an `NSViewRepresentable`, which sidesteps SwiftUI focus
-   entirely and costs nothing visually — the field is a plain single-line input.
+2. **Input focus** uses an `NSTextField` via `NSViewRepresentable`, with
+   `makeFirstResponder` on summon — not SwiftUI `TextField` + `@FocusState`.
 
 3. **Animating the window frame while glass re-samples may stutter.** There is a
    [confirmed macOS 26.2 defect](https://developer.apple.com/forums/thread/810314)

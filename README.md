@@ -41,7 +41,3 @@ Notes: `~/Library/Application Support/ConsoleMode/notes.sqlite`
 
 - Spec: `docs/superpowers/specs/2026-08-20-console-mode-design.md`
 - Plan: `docs/superpowers/plans/2026-08-20-console-mode.md`
-
-## Latency
-
-Summon uses `onKeyDown` (fires on press, not release). The `Summon` signpost in Instruments (`subsystem: com.seanperkins.ConsoleMode`) ends on the hosting view’s first draw after `orderFront`, not when `show()` returns — so it measures hotkey-to-first-frame, not the 0.18s drop animation. Target: under 50ms.
