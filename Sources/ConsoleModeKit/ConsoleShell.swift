@@ -26,6 +26,13 @@ final class ConsoleShell {
     init(notes: NoteListModel, usage: UsageMonitor) {
         self.notes = notes
         self.usage = usage
+        syncCollapsedCapacity()
+    }
+
+    /// The usage tab sets the resting height, so the notes tab shows as many rows
+    /// as that height allows.
+    func syncCollapsedCapacity() {
+        notes.collapsedRowCapacity = PanelGeometry.notesRowCapacity(providerCount: usageLineCount)
     }
 
     var tabs: [ConsoleTab] {

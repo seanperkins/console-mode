@@ -2,13 +2,63 @@ import CoreGraphics
 import Testing
 @testable import ConsoleModeKit
 
-// The card now carries a tab strip on every tab, so the collapsed notes height is
-// the old 89pt content plus `tabBarHeight`.
-private let collapsed: CGFloat = 89 + PanelGeometry.tabBarHeight
+/// With three providers the usage tab is the taller one, so it sets the baseline.
+private let providers = 3
+private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
 
-@Test func collapsedHeightIncludesTabBar() {
-    #expect(PanelGeometry.contentHeight(visibleRowCount: 1) == collapsed)
-    #expect(PanelGeometry.collapsedHeight() == collapsed)
+@Test func bothTabsShareTheRestingHeight() {
+    // The whole point: switching tabs must not move the card or the input bar.
+    for tab in ConsoleTab.allCases {
+        let height = PanelGeometry.panelHeight(
+            tab: tab,
+            expanded: false,
+            visibleRowCount: 1,
+            providerCount: providers,
+            screenVisibleHeight: 1_000
+        )
+        #expect(height == baseline)
+    }
+}
+
+@Test func baselineTakesTheTallerTab() {
+    // Many providers: usage wins.
+    #expect(PanelGeometry.baselineHeight(providerCount: 8) == PanelGeometry.usageHeight(providerCount: 8))
+    // A single provider is shorter than the notes chrome, so notes wins.
+    #expect(PanelGeometry.baselineHeight(providerCount: 1) == PanelGeometry.contentHeight(visibleRowCount: 1))
+}
+
+@Test func rowCapacityFillsTheBaseline() {
+    let capacity = PanelGeometry.notesRowCapacity(providerCount: providers)
+    #expect(capacity >= 1)
+
+    // The rows that fit must not overflow the shared height.
+    let used = PanelGeometry.notesChrome + CGFloat(capacity) * PanelGeometry.rowHeight
+    #expect(used <= baseline)
+    // And one more row would overflow, so the space is actually being used.
+    #expect(used + PanelGeometry.rowHeight > baseline)
+}
+
+@Test func collapsedNotesMatchesBaselineNotOneRow() {
+    let height = PanelGeometry.panelHeight(
+        tab: .notes,
+        expanded: false,
+        visibleRowCount: 1,
+        providerCount: providers,
+        screenVisibleHeight: 1_000
+    )
+    #expect(height == baseline)
+    #expect(height > PanelGeometry.contentHeight(visibleRowCount: 1))
+}
+
+@Test func expandingNeverShrinksBelowBaseline() {
+    let height = PanelGeometry.panelHeight(
+        tab: .notes,
+        expanded: true,
+        visibleRowCount: 1,
+        providerCount: providers,
+        screenVisibleHeight: 1_000
+    )
+    #expect(height == baseline)
 }
 
 @Test func panelHeightClampsToHalfScreen() {
@@ -16,21 +66,10 @@ private let collapsed: CGFloat = 89 + PanelGeometry.tabBarHeight
         tab: .notes,
         expanded: true,
         visibleRowCount: 100,
-        providerCount: 0,
+        providerCount: providers,
         screenVisibleHeight: 1_000
     )
     #expect(height == 500)
-}
-
-@Test func collapsedHeightIgnoresRowCount() {
-    let height = PanelGeometry.panelHeight(
-        tab: .notes,
-        expanded: false,
-        visibleRowCount: 50,
-        providerCount: 0,
-        screenVisibleHeight: 1_000
-    )
-    #expect(height == collapsed)
 }
 
 @Test func usageHeightGrowsPerProvider() {
@@ -47,19 +86,12 @@ private let collapsed: CGFloat = 89 + PanelGeometry.tabBarHeight
         tab: .usage,
         expanded: true,
         visibleRowCount: 80,
-        providerCount: 3,
+        providerCount: providers,
         screenVisibleHeight: 1_000
     )
-    let collapsedNotes = PanelGeometry.panelHeight(
-        tab: .usage,
-        expanded: false,
-        visibleRowCount: 1,
-        providerCount: 3,
-        screenVisibleHeight: 1_000
-    )
-    #expect(expanded == collapsedNotes)
-    #expect(expanded == PanelGeometry.usageHeight(providerCount: 3))
+    #expect(expanded == baseline)
 }
+
 
 @Test func usageTabAlsoClampsToHalfScreen() {
     let height = PanelGeometry.panelHeight(
@@ -72,7 +104,7 @@ private let collapsed: CGFloat = 89 + PanelGeometry.tabBarHeight
     #expect(height == 400)
 }
 
-@Test func frameCentersHorizontally() {
+@Test func frameCentersHorizontallyAndStaysFlush() {
     let screen = ScreenMetrics(
         visibleOriginX: 100,
         visibleOriginY: 0,
@@ -84,11 +116,11 @@ private let collapsed: CGFloat = 89 + PanelGeometry.tabBarHeight
         tab: .notes,
         expanded: false,
         visibleRowCount: 1,
-        providerCount: 0
+        providerCount: providers
     )
     #expect(frame.width == 640)
-    #expect(frame.height == collapsed)
+    #expect(frame.height == baseline)
     #expect(frame.origin.x == CGFloat(100 + (1_800 - 640) / 2))
     // Card top stays flush under the menu bar regardless of height.
-    #expect(frame.origin.y == 1_100 - collapsed)
+    #expect(frame.origin.y == 1_100 - baseline)
 }

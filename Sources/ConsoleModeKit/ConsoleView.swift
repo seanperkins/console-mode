@@ -169,14 +169,24 @@ struct ConsoleView: View {
                     scrollToNewest(proxy, animated: false)
                 }
             }
-        } else if let note = model.newestNote {
-            NoteRow(
-                note: note,
-                isSelected: model.isNoteSelected(note),
-                onToggle: { model.toggleCompletion(for: note) }
-            )
+        } else if !model.displayNotes.isEmpty {
+            // Collapsed still shows a short list: the baseline height is set by the
+            // usage tab, so spend the spare rows on history rather than padding.
+            VStack(spacing: 0) {
+                ForEach(model.displayNotes) { note in
+                    NoteRow(
+                        note: note,
+                        isSelected: model.isNoteSelected(note),
+                        onToggle: { model.toggleCompletion(for: note) }
+                    )
+                }
+                Spacer(minLength: 0)
+            }
         } else {
-            placeholderRow
+            VStack(spacing: 0) {
+                placeholderRow
+                Spacer(minLength: 0)
+            }
         }
     }
 

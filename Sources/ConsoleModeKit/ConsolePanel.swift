@@ -182,6 +182,11 @@ struct ConsoleRootView: View {
             .onChange(of: shell.notes.notes.count) { _, _ in onLayoutChange() }
             // Tabs and provider count both change the card height.
             .onChange(of: shell.activeTab) { _, _ in onLayoutChange() }
-            .onChange(of: shell.usageLineCount) { _, _ in onLayoutChange() }
+            .onChange(of: shell.usageLineCount) { _, _ in
+                // Provider count sets the resting height, so the notes tab's row
+                // capacity has to follow it.
+                shell.syncCollapsedCapacity()
+                onLayoutChange()
+            }
     }
 }

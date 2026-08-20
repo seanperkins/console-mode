@@ -28,6 +28,15 @@ final class NoteListModel {
     }
 
 
+    /// How many rows the collapsed notes tab can show. Driven by the usage tab's
+    /// height so both tabs are the same size at rest.
+    var collapsedRowCapacity = 1 {
+        didSet {
+            guard collapsedRowCapacity != oldValue, !expanded else { return }
+            restartObservation()
+        }
+    }
+
     var visibleRowCount: Int {
         max(notes.count, 1)
     }
@@ -51,7 +60,7 @@ final class NoteListModel {
 
     func restartObservation() {
         observation?.cancel()
-        let limit = expanded ? 200 : 1
+        let limit = expanded ? 200 : max(1, collapsedRowCapacity)
         observation = store.observeRecent(limit: limit) { [weak self] notes in
             Task { @MainActor in
                 self?.notes = notes
