@@ -96,7 +96,7 @@ final class ConsolePanel: NSPanel {
 
         if animated, appearing == true {
             var start = target
-            start.origin.y += PanelGeometry.dropOffset
+            start.origin.y -= PanelGeometry.dropOffset
             setFrame(start, display: true)
             alphaValue = 0
             NSAnimationContext.runAnimationGroup { context in
