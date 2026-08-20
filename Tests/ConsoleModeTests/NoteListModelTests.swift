@@ -75,6 +75,31 @@ struct NoteListModelTests {
         #expect(model.editingNoteID == nil)
     }
 
+    @Test func checkboxTogglesCompletionOfLoadedNote() throws {
+        let store = try NoteStore.inMemory()
+        let note = try store.append("walk the dog")!
+        let id = note.id!
+
+        let model = NoteListModel(store: store)
+
+        // Nothing loaded yet: the checkbox is a no-op.
+        #expect(!model.isEditingExistingNote)
+        model.toggleCompletionForEditingNote()
+        #expect(try store.fetchNote(id: id)?.isCompleted == false)
+
+        model.navigateToOlderNote()
+        #expect(model.editingNoteID == id)
+        #expect(!model.isEditingNoteCompleted)
+
+        model.toggleCompletionForEditingNote()
+        #expect(try store.fetchNote(id: id)?.isCompleted == true)
+        #expect(model.isEditingNoteCompleted)
+
+        model.toggleCompletionForEditingNote()
+        #expect(try store.fetchNote(id: id)?.isCompleted == false)
+        #expect(!model.isEditingNoteCompleted)
+    }
+
     @Test func commitDraftUpdatesExistingNote() throws {
         let store = try NoteStore.inMemory()
         let note = try store.append("before")!

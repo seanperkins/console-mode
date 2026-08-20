@@ -133,6 +133,26 @@ final class NoteListModel {
         }
     }
 
+    /// The note currently loaded into the input via the arrow keys, if any.
+    /// Falls back to a direct fetch because `notes` holds only one row when collapsed.
+    var editingNote: Note? {
+        guard let editingNoteID else { return nil }
+        if let loaded = notes.first(where: { $0.id == editingNoteID }) {
+            return loaded
+        }
+        return try? store.fetchNote(id: editingNoteID)
+    }
+
+    var isEditingNoteCompleted: Bool {
+        editingNote?.isCompleted ?? false
+    }
+
+    /// Toggle completion on the note in the input. No-op while composing a new note.
+    func toggleCompletionForEditingNote() {
+        guard let note = editingNote else { return }
+        toggleCompletion(for: note)
+    }
+
     func isNoteSelected(_ note: Note) -> Bool {
         guard let editingNoteID, let noteID = note.id else { return false }
         return editingNoteID == noteID

@@ -73,6 +73,12 @@ final class NoteStore: @unchecked Sendable {
         }
     }
 
+    func fetchNote(id: Int64) throws -> Note? {
+        try dbQueue.read { db in
+            try Note.fetchOne(db, key: id)
+        }
+    }
+
     /// Newest first, with `id` breaking exact `created_at` ties so the display list
     /// and the arrow-key navigation list can never disagree.
     private static let newestFirst = [Column("created_at").desc, Column("id").desc]
