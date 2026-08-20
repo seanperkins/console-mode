@@ -164,7 +164,13 @@ struct ConsoleInputBar: NSViewRepresentable {
             if let field, field.stringValue != model.draft {
                 field.stringValue = model.draft
             }
-            field?.placeholderString = model.isEditingExistingNote ? "Edit note…" : "New note…"
+            // Command feedback takes over the placeholder, which is already where
+            // the user is looking and needs no extra layout.
+            if let status = model.statusMessage {
+                field?.placeholderString = status
+            } else {
+                field?.placeholderString = model.isEditingExistingNote ? "Edit note…" : "New note…"
+            }
 
             chevron?.image = ConsoleInputBar.chevronImage(expanded: model.expanded)
             chevron?.toolTip = model.expanded ? "Collapse list" : "Expand list"
@@ -191,6 +197,10 @@ struct ConsoleInputBar: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             model.draft = field.stringValue
+            if model.statusMessage != nil {
+                model.statusMessage = nil
+                syncFromModel()
+            }
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

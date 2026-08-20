@@ -79,6 +79,12 @@ final class NoteStore: @unchecked Sendable {
         }
     }
 
+    func delete(id: Int64) throws {
+        try dbQueue.write { db in
+            _ = try Note.deleteOne(db, key: id)
+        }
+    }
+
     /// Record the tagger's verdict. `project` nil means "ran, no label" — `tagged_at`
     /// still gets set so the note is not retried on every launch.
     func setProject(id: Int64, project: String?, confidence: Double?, at date: Date = Date()) throws {

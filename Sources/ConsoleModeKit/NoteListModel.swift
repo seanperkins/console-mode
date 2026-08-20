@@ -14,6 +14,10 @@ final class NoteListModel {
     private var pendingDraft = ""
     private(set) var isBackfilling = false
     var tagStatus: String?
+    /// Transient feedback shown as the input placeholder; cleared on the next keystroke.
+    var statusMessage: String?
+    /// Set by AppDelegate for commands the model cannot perform itself.
+    var onAction: ((ConsoleAction) -> Void)?
 
     private let store: NoteStore
     private var observation: AnyDatabaseCancellable?
@@ -61,23 +65,134 @@ final class NoteListModel {
     }
 
     func commitDraft() {
+        switch ConsoleInput.parse(draft) {
+        case .empty:
+            return
+        case .command(let command, let argument):
+            run(command, argument: argument)
+        case .unknownCommand(let name):
+            statusMessage = "Unknown command /\(name) — try /help"
+        case .note(let body, let tags):
+            save(body: body, tags: tags)
+        }
+    }
+
+    /// A manual `#tag` wins over the model: it is an explicit instruction, so it is
+    /// written immediately and the note is marked tagged to keep the tagger off it.
+    private func save(body: String, tags: [String]) {
         do {
             if let editingNoteID {
-                if let updated = try store.updateBody(id: editingNoteID, rawBody: draft) {
-                    clearEditing()
-                    // Body changed, so any existing label may no longer apply.
+                guard let updated = try store.updateBody(id: editingNoteID, rawBody: body) else { return }
+                if let tag = tags.first {
+                    try store.setProject(id: editingNoteID, project: tag, confidence: 1)
+                } else {
                     scheduleTagging(noteID: editingNoteID, body: updated.body)
                 }
-            } else if let saved = try store.append(draft) {
+                clearEditing()
+            } else if let saved = try store.append(body), let id = saved.id {
                 draft = ""
                 pendingDraft = ""
-                if let id = saved.id {
+                if let tag = tags.first {
+                    try store.setProject(id: id, project: tag, confidence: 1)
+                } else {
                     scheduleTagging(noteID: id, body: saved.body)
                 }
             }
         } catch {
             NSLog("Failed to save note: \(error)")
+            statusMessage = "Could not save that note."
         }
+    }
+
+    // MARK: - Commands
+
+    private func run(_ command: SlashCommand, argument: String) {
+        switch command {
+        case .help:
+            statusMessage = ConsoleInput.helpText
+            draft = ""
+
+        case .tag:
+            guard let id = editingNoteID else {
+                statusMessage = "Press ↑ to pick a note, then /tag it."
+                draft = ""
+                return
+            }
+            guard let slug = ProjectTagger.normalize(argument) else {
+                statusMessage = "Usage: /tag project-name"
+                draft = ""
+                return
+            }
+            applyProject(slug, to: id, message: "Tagged \(slug).")
+
+        case .untag:
+            guard let id = editingNoteID else {
+                statusMessage = "Press ↑ to pick a note first."
+                draft = ""
+                return
+            }
+            applyProject(nil, to: id, message: "Removed the project.")
+
+        case .done:
+            guard editingNote != nil else {
+                statusMessage = "Press ↑ to pick a note first."
+                draft = ""
+                return
+            }
+            toggleCompletionForEditingNote()
+            statusMessage = isEditingNoteCompleted ? "Marked done." : "Marked not done."
+            draft = ""
+            clearEditing()
+
+        case .clear:
+            draft = ""
+            pendingDraft = ""
+            clearEditing()
+
+        case .delete:
+            guard let id = editingNoteID else {
+                statusMessage = "Press ↑ to pick a note first."
+                draft = ""
+                return
+            }
+            do {
+                try store.delete(id: id)
+                clearEditing()
+                statusMessage = "Deleted."
+            } catch {
+                NSLog("Failed to delete note: \(error)")
+                statusMessage = "Could not delete that note."
+            }
+
+        case .expand:
+            draft = ""
+            guard !expanded else { return }
+            toggleExpanded()
+
+        case .collapse:
+            draft = ""
+            guard expanded else { return }
+            toggleExpanded()
+
+        case .settings:
+            draft = ""
+            onAction?(.openSettings)
+
+        case .quit:
+            onAction?(.quit)
+        }
+    }
+
+    private func applyProject(_ slug: String?, to id: Int64, message: String) {
+        do {
+            try store.setProject(id: id, project: slug, confidence: 1)
+            statusMessage = message
+        } catch {
+            NSLog("Failed to set project: \(error)")
+            statusMessage = "Could not update the project."
+        }
+        draft = ""
+        clearEditing()
     }
 
     // MARK: - Project tagging

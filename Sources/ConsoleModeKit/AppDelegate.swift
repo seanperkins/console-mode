@@ -37,6 +37,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         model = NoteListModel(store: store)
+        model.onAction = { [weak self] action in
+            switch action {
+            case .openSettings:
+                self?.dismissConsole()
+                self?.openSettings()
+            case .quit:
+                NSApp.terminate(nil)
+            }
+        }
         panel = ConsolePanel(model: model)
         panel.prewarm(on: ScreenLocator.screenForMouse())
 
