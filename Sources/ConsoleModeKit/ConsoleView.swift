@@ -1,16 +1,27 @@
 import AppKit
 import SwiftUI
 
-private struct CardChrome: View {
+private struct CardBackground: View {
+    private var reduceTransparency: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    }
+
     var body: some View {
-        RoundedRectangle(cornerRadius: PanelGeometry.cornerRadius, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        Group {
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: PanelGeometry.cornerRadius, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor))
+            } else {
+                RoundedRectangle(cornerRadius: PanelGeometry.cornerRadius, style: .continuous)
+                    .glassEffect(.regular, in: .rect(cornerRadius: PanelGeometry.cornerRadius))
+            }
+        }
     }
 }
 
 struct ConsoleView: View {
     @Bindable var model: NoteListModel
-    var onInputFieldCreated: (NoteInputField.Coordinator.NSTextFieldBox) -> Void
+    @FocusState.Binding var inputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,8 +34,11 @@ struct ConsoleView: View {
         }
         .padding(.vertical, PanelGeometry.verticalPadding)
         .frame(width: PanelGeometry.cardWidth)
-        .background(CardChrome())
+        .background(CardBackground())
         .clipShape(RoundedRectangle(cornerRadius: PanelGeometry.cornerRadius, style: .continuous))
+        .onChange(of: model.focusToken) { _, _ in
+            inputFocused = true
+        }
     }
 
     @ViewBuilder
@@ -66,13 +80,13 @@ struct ConsoleView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            NoteInputField(
-                text: $model.draft,
-                focusToken: model.focusToken,
-                onCommit: { model.commitDraft() },
-                onFieldCreated: onInputFieldCreated
-            )
-            .frame(height: PanelGeometry.inputHeight)
+            TextField("New note…", text: $model.draft)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .focused($inputFocused)
+                .onSubmit {
+                    model.commitDraft()
+                }
 
             Button {
                 model.toggleExpanded()

@@ -4,9 +4,7 @@ import SwiftUI
 @MainActor
 final class ConsolePanel: NSPanel {
     private let model: NoteListModel
-    private let effectView = NSVisualEffectView()
     private var hostingView: NSHostingView<ConsoleRootView>!
-    private var noteInputField: NoteInputField.Coordinator.NSTextFieldBox?
     private(set) var isPanelVisible = false
 
     init(model: NoteListModel) {
@@ -29,29 +27,19 @@ final class ConsolePanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
 
-        configureEffectView()
-
-        let rootView = ConsoleRootView(
-            model: model,
-            onExpandedChange: { [weak self] in
-                guard let self, self.isPanelVisible else { return }
-                self.refreshFrame(on: ScreenLocator.screenForMouse(), animated: true)
-            },
-            onInputFieldCreated: { [weak self] field in
-                self?.noteInputField = field
-            }
-        )
+        let rootView = ConsoleRootView(model: model) { [weak self] in
+            guard let self, self.isPanelVisible else { return }
+            self.refreshFrame(on: ScreenLocator.screenForMouse(), animated: true)
+        }
         hostingView = NSHostingView(rootView: rootView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
-
-        effectView.addSubview(hostingView)
-        contentView = effectView
-
+        contentView = NSView(frame: .zero)
+        contentView?.addSubview(hostingView)
         NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: effectView.trailingAnchor),
-            hostingView.topAnchor.constraint(equalTo: effectView.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: effectView.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: contentView!.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: contentView!.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: contentView!.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: contentView!.bottomAnchor),
         ])
     }
 
@@ -65,12 +53,10 @@ final class ConsolePanel: NSPanel {
     }
 
     func show(on screen: NSScreen) {
-        updateEffectMaterial()
         applyFrame(on: screen, animated: true, appearing: true)
         makeKeyAndOrderFront(nil)
         isPanelVisible = true
         model.requestInputFocus()
-        focusInputField()
     }
 
     func hide() {
@@ -93,34 +79,6 @@ final class ConsolePanel: NSPanel {
             }
         } else {
             setFrame(target, display: true)
-        }
-    }
-
-    private func configureEffectView() {
-        effectView.material = .hudWindow
-        effectView.blendingMode = .behindWindow
-        effectView.state = .active
-        effectView.wantsLayer = true
-        effectView.layer?.cornerRadius = PanelGeometry.cornerRadius
-        effectView.layer?.cornerCurve = .continuous
-        effectView.layer?.masksToBounds = true
-    }
-
-    private func updateEffectMaterial() {
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
-            effectView.material = .windowBackground
-            effectView.blendingMode = .withinWindow
-        } else {
-            effectView.material = .hudWindow
-            effectView.blendingMode = .behindWindow
-        }
-    }
-
-    private func focusInputField() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let field = self.noteInputField?.field else { return }
-            self.makeKey()
-            self.makeFirstResponder(field)
         }
     }
 
@@ -173,10 +131,10 @@ final class ConsolePanel: NSPanel {
 struct ConsoleRootView: View {
     @Bindable var model: NoteListModel
     let onExpandedChange: () -> Void
-    let onInputFieldCreated: (NoteInputField.Coordinator.NSTextFieldBox) -> Void
+    @FocusState private var inputFocused: Bool
 
     var body: some View {
-        ConsoleView(model: model, onInputFieldCreated: onInputFieldCreated)
+        ConsoleView(model: model, inputFocused: $inputFocused)
             .onChange(of: model.expanded) { _, _ in
                 onExpandedChange()
             }

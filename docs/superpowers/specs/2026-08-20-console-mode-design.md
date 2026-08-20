@@ -188,10 +188,12 @@ must never be stacked on glass because glass cannot sample glass. Rows,
 checkboxes, timestamps, and body text are therefore plain content drawn on top of
 a single glass panel.
 
-The card chrome is a hairline border in SwiftUI; the frosted backdrop is an
-`NSVisualEffectView` on the panel (`hudWindow` + `behindWindow`) so content behind
-the transparent window is sampled correctly. SwiftUI `.glassEffect()` on a transparent
-`NSPanel` is not used — it does not reliably sample behind-window content.
+```swift
+GlassEffectContainer {
+    VStack(spacing: 0) { /* previous note, divider, input */ }
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+}
+```
 
 **Reduce Transparency.** macOS 26 users can tune system glassiness, and the
 setting must be honored. When
@@ -259,15 +261,21 @@ the prior app. Claims about the UI come from watching it run.
 Three unknowns, each with a concrete fallback. All three resolve during
 implementation, not planning.
 
-1. **Backdrop sampling** — resolved by using `NSVisualEffectView` (`hudWindow` +
-   `behindWindow`) as the panel content root instead of SwiftUI `.glassEffect()`.
+1. **Does SwiftUI `.glassEffect()` sample behind-window content in a transparent
+   `NSPanel`?** Unverified until the user sees flat translucency. If it fails, use
+   branch `fallback/hud-backdrop-appkit-input` (`NSVisualEffectView` + `NoteInputField`).
 
-2. **Input focus** — resolved with `NoteInputField` (`NSTextField` +
-   `makeFirstResponder` on summon).
+2. **SwiftUI `TextField` focus inside a non-activating panel is historically
+   fiddly.** Mitigation: `@FocusState` when showing. If typing fails, same fallback
+   branch wraps `NSTextField` via `NSViewRepresentable`.
 
-3. **Frame animation stutter** — watch during use; panel uses `NSVisualEffectView`,
-   not private `NSGlassEffectView`. If expand/dismiss stutters, shorten motion or
-   keep the window frame static and animate alpha only.
+3. **Animating the window frame while glass re-samples may stutter.** There is a
+   [confirmed macOS 26.2 defect](https://developer.apple.com/forums/thread/810314)
+   where `NSGlassEffectView` caches its backdrop and stops updating when a window
+   moves — which is why the AppKit glass route is rejected outright. If the
+   SwiftUI route shows similar artifacts during the drop-in, switch the animation
+   from the window frame to alpha plus an internal content offset, keeping the
+   window frame static.
 
 ## Reference implementations
 
