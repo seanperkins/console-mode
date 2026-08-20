@@ -147,7 +147,7 @@ testable without a screen.
 - **Width:** 640pt, fixed.
 - **Horizontal position:** centered on the screen containing the cursor
   (`NSEvent.mouseLocation`), not unconditionally the main display.
-- **Top edge:** `screen.visibleFrame.maxY - 120`.
+- **Top edge:** flush with `screen.visibleFrame.maxY` (card sits directly under the menu bar).
 - **Collapsed height:** 89pt, which is exactly `contentHeight(rowCount: 1)` —
   one row (28) + input (36) + hairline divider (1) + 12pt padding top and bottom.
   Collapsed and expanded heights come from the same formula rather than a
@@ -159,8 +159,7 @@ testable without a screen.
 
 Motion:
 
-- **Drop in, 0.18s, ease-out.** The window origin animates down 24pt into its
-  final position while alpha goes 0 to 1.
+- **Appear, 0.18s, ease-out.** Starts 24pt below the resting frame and slides up into place while alpha goes 0 to 1 — never crosses into the menu bar.
 - **Dismiss, 0.12s.** The reverse. Faster out than in, which is the pattern
   Apple uses across the system.
 - **Expand and collapse.** Window height animates with a spring; the list is a
@@ -168,8 +167,7 @@ Motion:
 
 Window configuration:
 
-- `styleMask`: `[.nonactivatingPanel, .titled, .fullSizeContentView]`, with
-  `titlebarAppearsTransparent = true`, `titleVisibility = .hidden`, and
+- `styleMask`: `[.nonactivatingPanel, .borderless, .fullSizeContentView]`, with
   `isMovable = false`. `canBecomeKey` is overridden to return `true`.
 - `level = .statusBar` and
   `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]`,
