@@ -54,7 +54,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installHotkey() {
-        KeyboardShortcuts.onKeyUp(for: .toggleConsole) { [weak self] in
+        KeyboardShortcuts.onKeyDown(for: .toggleConsole) { [weak self] in
             Task { @MainActor in
                 self?.toggleConsole()
             }
@@ -67,9 +67,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             dismissConsole()
         } else {
             let state = signposter.beginInterval("Summon")
-            panel.show(on: screen)
+            panel.show(on: screen, onFirstDisplay: { [signposter] in
+                signposter.endInterval("Summon", state)
+            })
             installDismissMonitors()
-            signposter.endInterval("Summon", state)
         }
     }
 

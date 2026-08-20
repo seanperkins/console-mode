@@ -44,4 +44,4 @@ Notes: `~/Library/Application Support/ConsoleMode/notes.sqlite`
 
 ## Latency
 
-Summon path is instrumented with `OSSignposter` (`subsystem: com.seanperkins.ConsoleMode`, category: `Summon`). Profile in Instruments → Points of Interest while toggling the console; target is under 50ms hotkey-to-first-frame.
+Summon uses `onKeyDown` (fires on press, not release). The `Summon` signpost in Instruments (`subsystem: com.seanperkins.ConsoleMode`) ends on the hosting view’s first draw after `orderFront`, not when `show()` returns — so it measures hotkey-to-first-frame, not the 0.18s drop animation. Target: under 50ms.

@@ -1,10 +1,22 @@
 import AppKit
 import SwiftUI
 
+/// Invokes `onFirstDisplay` once on the first `draw` after summon (hotkey → first frame).
+final class ConsoleHostingView<Content: View>: NSHostingView<Content> {
+    var onFirstDisplay: (() -> Void)?
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let onFirstDisplay else { return }
+        self.onFirstDisplay = nil
+        onFirstDisplay()
+    }
+}
+
 @MainActor
 final class ConsolePanel: NSPanel {
     private let model: NoteListModel
-    private var hostingView: NSHostingView<ConsoleRootView>!
+    private var hostingView: ConsoleHostingView<ConsoleRootView>!
     private(set) var isPanelVisible = false
 
     init(model: NoteListModel) {
@@ -31,7 +43,7 @@ final class ConsolePanel: NSPanel {
             guard let self, self.isPanelVisible else { return }
             self.refreshFrame(on: ScreenLocator.screenForMouse(), animated: true)
         }
-        hostingView = NSHostingView(rootView: rootView)
+        hostingView = ConsoleHostingView(rootView: rootView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         contentView = NSView(frame: .zero)
         contentView?.addSubview(hostingView)
@@ -52,11 +64,19 @@ final class ConsolePanel: NSPanel {
         isPanelVisible = false
     }
 
-    func show(on screen: NSScreen) {
+    func show(on screen: NSScreen, onFirstDisplay: (() -> Void)? = nil) {
+        hostingView.onFirstDisplay = onFirstDisplay
         applyFrame(on: screen, animated: true, appearing: true)
         makeKeyAndOrderFront(nil)
         isPanelVisible = true
         model.requestInputFocus()
+        hostingView.layoutSubtreeIfNeeded()
+        displayIfNeeded()
+        // If AppKit did not draw this cycle, still close the signpost after a forced flush.
+        if hostingView.onFirstDisplay != nil {
+            hostingView.onFirstDisplay?()
+            hostingView.onFirstDisplay = nil
+        }
     }
 
     func hide() {
