@@ -85,6 +85,20 @@ final class NoteStore: @unchecked Sendable {
         }
     }
 
+    /// Wipe every note. Irreversible — callers must confirm first.
+    @discardableResult
+    func deleteAll() throws -> Int {
+        try dbQueue.write { db in
+            try Note.deleteAll(db)
+        }
+    }
+
+    func count() throws -> Int {
+        try dbQueue.read { db in
+            try Note.fetchCount(db)
+        }
+    }
+
     /// Record the tagger's verdict. `project` nil means "ran, no label" — `tagged_at`
     /// still gets set so the note is not retried on every launch.
     func setProject(id: Int64, project: String?, confidence: Double?, at date: Date = Date()) throws {

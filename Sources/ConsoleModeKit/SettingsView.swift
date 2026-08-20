@@ -7,6 +7,8 @@ struct SettingsView: View {
 
     @State private var launchAtLoginError: String?
     @State private var config = TaggerSettings.current
+    @State private var isConfirmingClearAll = false
+    @State private var pendingDeleteCount = 0
 
     private var launchAtLoginBinding: Binding<Bool> {
         Binding(
@@ -117,7 +119,46 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+
+            Divider()
+                .padding(.vertical, 6)
+
+            HStack(spacing: 10) {
+                Button("Clear all notes…", role: .destructive) {
+                    pendingDeleteCount = model.noteCount
+                    isConfirmingClearAll = true
+                }
+                .disabled(model.noteCount == 0)
+
+                Text(noteCountLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Deleting notes cannot be undone.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .confirmationDialog(
+            "Delete all \(pendingDeleteCount) note\(pendingDeleteCount == 1 ? "" : "s")?",
+            isPresented: $isConfirmingClearAll,
+            titleVisibility: .visible
+        ) {
+            Button("Delete \(pendingDeleteCount) note\(pendingDeleteCount == 1 ? "" : "s")", role: .destructive) {
+                model.deleteAllNotes()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes every note from \(NoteStore.defaultDatabaseURL().lastPathComponent). It cannot be undone.")
+        }
+    }
+
+    private var noteCountLabel: String {
+        let count = model.noteCount
+        if let status = model.statusMessage, status.hasPrefix("Deleted ") {
+            return status
+        }
+        return count == 0 ? "No notes stored." : "\(count) note\(count == 1 ? "" : "s") stored."
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {

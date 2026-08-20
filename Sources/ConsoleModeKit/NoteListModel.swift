@@ -195,6 +195,30 @@ final class NoteListModel {
         clearEditing()
     }
 
+    // MARK: - Bulk actions
+
+    var noteCount: Int {
+        (try? store.count()) ?? 0
+    }
+
+    /// Irreversible. Settings confirms before calling this.
+    @discardableResult
+    func deleteAllNotes() -> Int {
+        do {
+            let removed = try store.deleteAll()
+            // The selection and stashed draft both point at notes that no longer exist.
+            clearEditing()
+            pendingDraft = ""
+            draft = ""
+            statusMessage = "Deleted \(removed) note\(removed == 1 ? "" : "s")."
+            return removed
+        } catch {
+            NSLog("Failed to delete all notes: \(error)")
+            statusMessage = "Could not delete the notes."
+            return 0
+        }
+    }
+
     // MARK: - Project tagging
 
     /// Fire-and-forget so capture never waits on the model (~5s per call).

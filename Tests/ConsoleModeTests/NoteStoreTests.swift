@@ -122,3 +122,22 @@ import Testing
     // Most-used first, and unlabelled notes contribute nothing.
     #expect(try store.knownProjects() == ["console-mode", "rare-thing"])
 }
+
+@Test func deleteAllRemovesEveryNote() throws {
+    let store = try NoteStore.inMemory()
+    _ = try store.append("one")
+    _ = try store.append("two")
+    _ = try store.append("three")
+    #expect(try store.count() == 3)
+
+    #expect(try store.deleteAll() == 3)
+
+    #expect(try store.count() == 0)
+    #expect(try store.fetchRecent(limit: 10).isEmpty)
+}
+
+@Test func deleteAllOnEmptyStoreIsHarmless() throws {
+    let store = try NoteStore.inMemory()
+    #expect(try store.deleteAll() == 0)
+    #expect(try store.count() == 0)
+}

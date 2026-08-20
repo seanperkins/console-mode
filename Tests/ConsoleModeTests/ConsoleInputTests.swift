@@ -220,4 +220,24 @@ struct ConsoleCommandTests {
         #expect(model.editingNoteID == nil)
         #expect(try store.fetchRecent(limit: 1).first?.body == "keep me")
     }
+
+    @Test func deleteAllNotesClearsStoreAndSelection() throws {
+        let store = try NoteStore.inMemory()
+        _ = try store.append("first")
+        _ = try store.append("second")
+        let model = NoteListModel(store: store)
+        #expect(model.noteCount == 2)
+
+        // Select a note and stash a draft, so both point at soon-deleted state.
+        model.draft = "half typed"
+        model.navigateToOlderNote()
+        #expect(model.editingNoteID != nil)
+
+        #expect(model.deleteAllNotes() == 2)
+
+        #expect(model.noteCount == 0)
+        #expect(model.editingNoteID == nil)
+        #expect(model.draft.isEmpty)
+        #expect(try store.fetchRecent(limit: 10).isEmpty)
+    }
 }
