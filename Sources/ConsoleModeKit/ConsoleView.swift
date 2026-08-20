@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+private enum InputBarFocus: Hashable {
+    case field
+    case expand
+}
+
 private struct CardBackground: View {
     private var reduceTransparency: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
@@ -21,7 +26,7 @@ private struct CardBackground: View {
 
 struct ConsoleView: View {
     @Bindable var model: NoteListModel
-    @FocusState.Binding var inputFocused: Bool
+    @FocusState private var barFocus: InputBarFocus?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,29 +42,42 @@ struct ConsoleView: View {
         .background(CardBackground())
         .clipShape(RoundedRectangle(cornerRadius: PanelGeometry.cornerRadius, style: .continuous))
         .onChange(of: model.focusToken) { _, _ in
-            inputFocused = true
+            barFocus = .field
         }
     }
 
     @ViewBuilder
     private var noteSection: some View {
         if model.expanded {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(model.notes) { note in
-                        NoteRow(note: note) {
-                            model.toggleCompletion(for: note)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(model.notes) { note in
+                            NoteRow(
+                                note: note,
+                                isSelected: model.isNoteSelected(note),
+                                onToggle: { model.toggleCompletion(for: note) }
+                            )
+                            .id(note.id)
+                        }
+                        if model.notes.isEmpty {
+                            placeholderRow
                         }
                     }
-                    if model.notes.isEmpty {
-                        placeholderRow
+                }
+                .onChange(of: model.scrollTargetID) { _, noteID in
+                    guard let noteID else { return }
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo(noteID, anchor: .center)
                     }
                 }
             }
         } else if let note = model.notes.first {
-            NoteRow(note: note) {
-                model.toggleCompletion(for: note)
-            }
+            NoteRow(
+                note: note,
+                isSelected: model.isNoteSelected(note),
+                onToggle: { model.toggleCompletion(for: note) }
+            )
         } else {
             placeholderRow
         }
@@ -80,12 +98,20 @@ struct ConsoleView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
-            TextField("New note…", text: $model.draft)
+            TextField(inputPlaceholder, text: $model.draft)
                 .textFieldStyle(.plain)
                 .font(.body)
-                .focused($inputFocused)
+                .focused($barFocus, equals: .field)
                 .onSubmit {
                     model.commitDraft()
+                }
+                .onKeyPress(.upArrow) {
+                    model.navigateToOlderNote()
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    model.navigateToNewerNote()
+                    return .handled
                 }
 
             Button {
@@ -98,8 +124,22 @@ struct ConsoleView: View {
             }
             .buttonStyle(.plain)
             .help(model.expanded ? "Collapse list" : "Expand list")
+            .focusable()
+            .focused($barFocus, equals: .expand)
+            .onKeyPress(.return) {
+                model.toggleExpanded()
+                return .handled
+            }
+            .onKeyPress(.space) {
+                model.toggleExpanded()
+                return .handled
+            }
         }
         .frame(height: PanelGeometry.inputHeight)
         .padding(.horizontal, 12)
+    }
+
+    private var inputPlaceholder: String {
+        model.isEditingExistingNote ? "Edit note…" : "New note…"
     }
 }

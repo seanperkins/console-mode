@@ -46,6 +46,23 @@ final class NoteStore: @unchecked Sendable {
         }
     }
 
+    @discardableResult
+    func updateBody(id: Int64, rawBody: String) throws -> Note? {
+        let body = rawBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE note SET body = ? WHERE id = ?",
+                arguments: [body, id]
+            )
+        }
+
+        return try dbQueue.read { db in
+            try Note.fetchOne(db, key: id)
+        }
+    }
+
     func setCompleted(id: Int64, completed: Bool, at date: Date = Date()) throws {
         let completedAt: TimeInterval? = completed ? date.timeIntervalSince1970 : nil
         try dbQueue.write { db in

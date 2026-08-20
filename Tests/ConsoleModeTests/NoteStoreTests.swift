@@ -40,3 +40,27 @@ import Testing
     #expect(!fetched.isCompleted)
     #expect(fetched.completedAt == nil)
 }
+
+
+@Test func updateBodyTrimsWhitespace() throws {
+    let store = try NoteStore.inMemory()
+    let note = try store.append("original")!
+    let id = note.id!
+
+    let updated = try store.updateBody(id: id, rawBody: "  revised  ")
+    #expect(updated?.body == "revised")
+
+    let fetched = try store.fetchRecent(limit: 1).first!
+    #expect(fetched.body == "revised")
+}
+
+@Test func updateBodyRejectsEmpty() throws {
+    let store = try NoteStore.inMemory()
+    let note = try store.append("keep me")!
+    let id = note.id!
+    #expect(try store.updateBody(id: id, rawBody: "") == nil)
+    #expect(try store.updateBody(id: id, rawBody: "   ") == nil)
+
+    let fetched = try store.fetchRecent(limit: 1).first!
+    #expect(fetched.body == "keep me")
+}

@@ -131,10 +131,8 @@ final class ConsolePanel: NSPanel {
 struct ConsoleRootView: View {
     @Bindable var model: NoteListModel
     let onExpandedChange: () -> Void
-    @FocusState private var inputFocused: Bool
-
     var body: some View {
-        ConsoleView(model: model, inputFocused: $inputFocused)
+        ConsoleView(model: model)
             .onChange(of: model.expanded) { _, _ in
                 onExpandedChange()
             }

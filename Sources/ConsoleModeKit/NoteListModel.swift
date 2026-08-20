@@ -8,6 +8,8 @@ final class NoteListModel {
     var draft = ""
     var expanded = false
     private(set) var notes: [Note] = []
+    private(set) var editingNoteID: Int64?
+    private(set) var scrollTargetID: Int64?
 
     private let store: NoteStore
     private var observation: AnyDatabaseCancellable?
@@ -17,10 +19,16 @@ final class NoteListModel {
         restartObservation()
     }
 
+
     var visibleRowCount: Int {
         max(notes.count, 1)
     }
+
     var focusToken = 0
+
+    var isEditingExistingNote: Bool {
+        editingNoteID != nil
+    }
 
     func restartObservation() {
         observation?.cancel()
@@ -39,16 +47,65 @@ final class NoteListModel {
 
     func commitDraft() {
         do {
-            if try store.append(draft) != nil {
+            if let editingNoteID {
+                if try store.updateBody(id: editingNoteID, rawBody: draft) != nil {
+                    clearEditing()
+                }
+            } else if try store.append(draft) != nil {
                 draft = ""
             }
         } catch {
-            NSLog("Failed to append note: \(error)")
+            NSLog("Failed to save note: \(error)")
         }
     }
 
     func requestInputFocus() {
         focusToken += 1
+    }
+
+    func navigateToOlderNote() {
+        do {
+            if !expanded {
+                let total = try store.fetchRecent(limit: 200).count
+                if total > 1 {
+                    expanded = true
+                    restartObservation()
+                }
+            }
+
+            let list = try store.fetchRecent(limit: 200)
+            guard !list.isEmpty else { return }
+
+            if let editingNoteID, let index = list.firstIndex(where: { $0.id == editingNoteID }) {
+                let nextIndex = index + 1
+                guard nextIndex < list.count else { return }
+                beginEditing(list[nextIndex])
+            } else {
+                beginEditing(list[0])
+            }
+        } catch {
+            NSLog("Failed to navigate notes: \(error)")
+        }
+    }
+
+    func navigateToNewerNote() {
+        guard let editingNoteID else { return }
+
+        do {
+            let list = try store.fetchRecent(limit: 200)
+            guard let index = list.firstIndex(where: { $0.id == editingNoteID }) else {
+                clearEditing()
+                return
+            }
+
+            if index > 0 {
+                beginEditing(list[index - 1])
+            } else {
+                clearEditing()
+            }
+        } catch {
+            NSLog("Failed to navigate notes: \(error)")
+        }
     }
 
     func toggleCompletion(for note: Note) {
@@ -58,5 +115,23 @@ final class NoteListModel {
         } catch {
             NSLog("Failed to toggle completion: \(error)")
         }
+    }
+
+    func isNoteSelected(_ note: Note) -> Bool {
+        guard let editingNoteID, let noteID = note.id else { return false }
+        return editingNoteID == noteID
+    }
+
+    private func beginEditing(_ note: Note) {
+        guard let id = note.id else { return }
+        editingNoteID = id
+        draft = note.body
+        scrollTargetID = id
+    }
+
+    private func clearEditing() {
+        editingNoteID = nil
+        draft = ""
+        scrollTargetID = nil
     }
 }

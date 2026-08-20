@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NoteRow: View {
     let note: Note
+    let isSelected: Bool
     let onToggle: () -> Void
 
     var body: some View {
@@ -29,5 +30,11 @@ struct NoteRow: View {
         }
         .frame(height: PanelGeometry.rowHeight)
         .padding(.horizontal, 12)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
+            }
+        }
     }
 }
