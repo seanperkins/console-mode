@@ -138,5 +138,8 @@ struct ConsoleRootView: View {
             .onChange(of: model.expanded) { _, _ in
                 onExpandedChange()
             }
+            .onChange(of: model.notes.count) { _, _ in
+                onExpandedChange()
+            }
     }
 }
