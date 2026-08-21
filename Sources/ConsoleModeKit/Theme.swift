@@ -193,7 +193,9 @@ extension ThemeTokens {
         dividerColor: Color(hex: 0x00F0FF, opacity: 0.22),
         textPrimary: Color(hex: 0xE8FDFF),
         textSecondary: Color(hex: 0x6FD9E4),
-        textTertiary: Color(hex: 0x3A6E78),
+        // 4.84:1 on this surface. The old #3A6E78 was 3.32:1, failing AA for the
+        // 11pt reset times and timestamps this token draws.
+        textTertiary: Color(hex: 0x498A97),
         accent: Color(hex: 0xFF2E97),
         fontDesign: .monospaced,
         labelCasing: .upper,
@@ -219,7 +221,8 @@ extension ThemeTokens {
         dividerColor: Color(hex: 0x33FF66, opacity: 0.20),
         textPrimary: Color(hex: 0xB6FFC4),
         textSecondary: Color(hex: 0x5FCE77),
-        textTertiary: Color(hex: 0x2F6B3C),
+        // 4.90:1; was #2F6B3C at 3.22:1.
+        textTertiary: Color(hex: 0x3D8B4E),
         accent: Color(hex: 0x33FF66),
         fontDesign: .monospaced,
         labelCasing: .upper,
@@ -245,7 +248,8 @@ extension ThemeTokens {
         dividerColor: Color(hex: 0x1C1B19, opacity: 0.12),
         textPrimary: Color(hex: 0x1C1B19),
         textSecondary: Color(hex: 0x5C574F),
-        textTertiary: Color(hex: 0x9A948A),
+        // 4.84:1; was #9A948A at 2.88:1, the worst offender of the set.
+        textTertiary: Color(hex: 0x746E64),
         accent: Color(hex: 0x2E5BD8),
         fontDesign: .default,
         labelCasing: .asTyped,
@@ -255,8 +259,10 @@ extension ThemeTokens {
         meterStyle: .capsule,
         promptGlyph: nil,
         severityHealthy: Color(hex: 0x1F7A3D),
-        severityLow: Color(hex: 0xB07B00),
-        severityVeryLow: Color(hex: 0xC2560F),
+        // Both carry the percentage text, so they need text-grade contrast:
+        // 4.90:1 and 4.91:1, up from 3.54:1 and 4.34:1.
+        severityLow: Color(hex: 0x916600),
+        severityVeryLow: Color(hex: 0xB4500E),
         severityCritical: Color(hex: 0xB3261E)
     )
 }

@@ -204,12 +204,15 @@ struct ConsoleView: View {
     }
 
     private var placeholderRow: some View {
-        HStack {
+        let theme = shell.theme
+        return HStack {
             Image(systemName: "circle")
-                .foregroundStyle(.tertiary)
-            Text("No notes yet")
-                .font(.body)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(theme.textTertiary)
+            // Secondary, not tertiary: this is the only text on an empty card.
+            Text(theme.label("No notes yet"))
+                .font(theme.bodyFont)
+                .tracking(theme.labelTracking)
+                .foregroundStyle(theme.textSecondary)
             Spacer()
         }
         .frame(height: PanelGeometry.rowHeight)
