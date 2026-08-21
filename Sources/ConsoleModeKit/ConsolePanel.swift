@@ -62,44 +62,6 @@ final class ConsolePanel: NSPanel {
         }
     }
 
-    /// Command shortcuts must be intercepted here: the panel is nonactivating, so
-    /// SwiftUI key handling never sees them.
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command, let characters = event.charactersIgnoringModifiers else {
-            return super.performKeyEquivalent(with: event)
-        }
-        switch characters.lowercased() {
-        case "1":
-            shell.select(.notes)
-            focusIfNeeded()
-            return true
-        case "2":
-            shell.select(.usage)
-            return true
-        case "r":
-            Task { await shell.usage.refresh() }
-            return true
-        default:
-            return super.performKeyEquivalent(with: event)
-        }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        // ⌃Tab cycles tabs; plain Tab still walks the input bar's key view loop.
-        if flags.contains(.control), event.keyCode == 48 {
-            shell.cycleTab()
-            focusIfNeeded()
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    private func focusIfNeeded() {
-        guard shell.activeTab == .notes else { return }
-        shell.notes.requestInputFocus()
-    }
 
     func hide() {
         guard isPanelVisible else { return }

@@ -192,7 +192,7 @@ struct UsageView: View {
 
             Spacer(minLength: 0)
 
-            Text("⌘R refresh")
+            Text("⌃R refresh")
                 .foregroundStyle(theme.textTertiary)
         }
         .font(theme.captionFont)

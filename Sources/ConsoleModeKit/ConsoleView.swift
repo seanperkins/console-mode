@@ -35,8 +35,8 @@ private struct CardBackground: View {
     }
 }
 
-/// Compact tab strip. Clicking switches tabs; ⌘1/⌘2 and ⌃Tab do the same from
-/// the keyboard without leaving the capture field.
+/// Compact tab strip. Clicking switches tabs; ⌃1/⌃2 and ⌃Tab do the same from the
+/// keyboard without leaving the capture field.
 struct ConsoleTabBar: View {
     @Bindable var shell: ConsoleShell
 
@@ -79,7 +79,7 @@ struct ConsoleTabBar: View {
             .foregroundStyle(isActive ? theme.accent : theme.textSecondary)
         }
         .buttonStyle(.plain)
-        .help("\(tab.title)  ⌘\(tab.commandDigit)")
+        .help("\(tab.title)  ⌃\(tab.commandDigit)")
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 
@@ -93,7 +93,7 @@ struct ConsoleTabBar: View {
                 .fill(theme.color(for: severity))
                 .frame(width: 7, height: 7)
                 .shadow(color: theme.color(for: severity).opacity(0.8), radius: theme.glowRadius / 3)
-                .help("Usage low — press ⌘2")
+                .help("Usage low — press ⌃2")
         }
     }
 }

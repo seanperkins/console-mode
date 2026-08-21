@@ -2,90 +2,119 @@ import AppKit
 import Testing
 @testable import ConsoleModeKit
 
-/// Drives the real `ConsolePanel` and renders the real views, all offscreen.
+/// Drives the real views offscreen and asserts the key bindings directly.
+///
+/// Bindings are tested through `ConsoleKeyBinding.action(for:)` rather than by
+/// calling `panel.keyDown`. Calling the override proved only that its body ran; it
+/// bypassed AppKit dispatch entirely, and in the live app a Control-modified key
+/// never reaches the panel — the focused text field takes it first. The real path
+/// is a local NSEvent monitor, and this is the decision that monitor makes.
 @MainActor
 struct PanelHarnessTests {
 
-    // MARK: - Key handling
-
-    /// The panel is nonactivating, so these handlers live in AppKit rather than
-    /// SwiftUI. Feeding them real NSEvents is the only way to prove they fire.
-    private func makePanel() throws -> (ConsolePanel, ConsoleShell) {
-        let shell = try SnapshotHarness.makeShell(
+    private func makeShell() throws -> ConsoleShell {
+        try SnapshotHarness.makeShell(
             for: .init(name: "keys", notes: ["alpha", "beta"]),
             usage: SnapshotHarness.usageFixture()
         )
-        return (ConsolePanel(shell: shell), shell)
     }
 
-    @Test func commandTwoSelectsUsageTab() throws {
-        let (panel, shell) = try makePanel()
+    // MARK: - Control bindings (primary: the summon chord already holds Control)
+
+    @Test func controlOneAndTwoSelectTabs() {
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "1", keyCode: 18, flags: .control))
+                == .selectTab(.notes)
+        )
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "2", keyCode: 19, flags: .control))
+                == .selectTab(.usage)
+        )
+    }
+
+    @Test func commandOneAndTwoStillWork() {
+        // Kept as an alias for habit, not as the documented binding.
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.command("1", keyCode: 18)) == .selectTab(.notes))
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.command("2", keyCode: 19)) == .selectTab(.usage))
+    }
+
+    @Test func controlTabCycles() {
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.controlTab()) == .cycleTab)
+    }
+
+    @Test func refreshBindsUnderBothModifiers() {
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.command("r", keyCode: 15)) == .refreshUsage)
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "r", keyCode: 15, flags: .control))
+                == .refreshUsage
+        )
+    }
+
+    @Test func escapeDismisses() {
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "\u{1b}", keyCode: 53, flags: []))
+                == .dismiss
+        )
+    }
+
+    // MARK: - Things that must not be claimed
+
+    @Test func summonChordIsNotMistakenForATabSwitch() {
+        // ⌃⇧` is the global hotkey; the extra Shift must disqualify it.
+        let event = KeyDriver.event(characters: "`", keyCode: 50, flags: [.control, .shift])
+        #expect(ConsoleKeyBinding.action(for: event) == nil)
+    }
+
+    @Test func plainDigitsReachTheTextField() {
+        // Typing "2" into a note must never switch tabs.
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.event(characters: "2", keyCode: 19, flags: [])) == nil)
+    }
+
+    @Test func otherCommandKeysArePassedThrough() {
+        for (character, keyCode) in [("v", UInt16(9)), ("c", 8), ("a", 0), ("z", 6), ("q", 12)] {
+            #expect(
+                ConsoleKeyBinding.action(for: KeyDriver.command(character, keyCode: keyCode)) == nil,
+                "⌘\(character) must not be swallowed"
+            )
+        }
+    }
+
+    @Test func shiftedDigitsAreIgnored() {
+        let event = KeyDriver.event(characters: "1", keyCode: 18, flags: [.control, .shift])
+        #expect(ConsoleKeyBinding.action(for: event) == nil)
+    }
+
+    @Test func plainTabIsLeftToTheKeyViewLoop() {
+        // Tab without Control still walks checkbox -> field -> chevron.
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.event(characters: "\t", keyCode: 48, flags: [])) == nil)
+    }
+
+    // MARK: - Shell behaviour behind those actions
+
+    @Test func selectingTabsMovesTheShell() throws {
+        let shell = try makeShell()
         #expect(shell.activeTab == .notes)
 
-        let handled = panel.performKeyEquivalent(with: KeyDriver.command("2", keyCode: 19))
-
-        #expect(handled)
+        shell.select(.usage)
         #expect(shell.activeTab == .usage)
-    }
 
-    @Test func commandOneReturnsToNotes() throws {
-        let (panel, shell) = try makePanel()
-        shell.activeTab = .usage
-
-        let handled = panel.performKeyEquivalent(with: KeyDriver.command("1", keyCode: 18))
-
-        #expect(handled)
-        #expect(shell.activeTab == .notes)
-    }
-
-    @Test func controlTabCyclesBothWays() throws {
-        let (panel, shell) = try makePanel()
-
-        panel.keyDown(with: KeyDriver.controlTab())
-        #expect(shell.activeTab == .usage)
-
-        panel.keyDown(with: KeyDriver.controlTab())
-        #expect(shell.activeTab == .notes)
-    }
-
-    @Test func commandRIsHandledOnUsageTab() throws {
-        let (panel, _) = try makePanel()
-        // Consumed by the panel rather than falling through to the text field,
-        // which would otherwise insert an "r".
-        #expect(panel.performKeyEquivalent(with: KeyDriver.command("r", keyCode: 15)))
-    }
-
-    @Test func unrelatedCommandKeyIsNotSwallowed() throws {
-        let (panel, shell) = try makePanel()
-        // ⌘V must reach the responder chain so paste keeps working.
-        _ = panel.performKeyEquivalent(with: KeyDriver.command("v", keyCode: 9))
+        shell.cycleTab()
         #expect(shell.activeTab == .notes)
     }
 
     @Test func tabsAreUnavailableWhenUsageIsOff() throws {
-        let (panel, shell) = try makePanel()
+        let shell = try makeShell()
         shell.setUsageEnabled(false)
 
-        let handled = panel.performKeyEquivalent(with: KeyDriver.command("2", keyCode: 19))
-
-        // The key is still claimed, but there is no usage tab to move to.
-        #expect(handled)
+        shell.select(.usage)
         #expect(shell.activeTab == .notes)
     }
 
-    // MARK: - Geometry through the real panel
-
     @Test func panelHeightMatchesAcrossTabs() throws {
-        let (_, shell) = try SnapshotHarness.makeShell(
-            for: .init(name: "geom", notes: ["one"]),
-            usage: SnapshotHarness.usageFixture()
-        ).asPair()
-
+        let shell = try makeShell()
         let notesHeight = SnapshotHarness.height(for: shell)
         shell.activeTab = .usage
-        let usageHeight = SnapshotHarness.height(for: shell)
-
-        #expect(notesHeight == usageHeight)
+        #expect(SnapshotHarness.height(for: shell) == notesHeight)
     }
 
     // MARK: - Rendering
@@ -116,10 +145,4 @@ struct PanelHarnessTests {
             #expect(size > 2_000, "\(scenario.name) rendered only \(size) bytes")
         }
     }
-}
-
-extension ConsoleShell {
-    /// Small helper so a scenario can be built and reused in one expression.
-    @MainActor
-    fileprivate func asPair() -> (ConsoleShell, ConsoleShell) { (self, self) }
 }

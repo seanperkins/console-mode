@@ -20,7 +20,7 @@ enum ConsoleTab: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// ⌘1 / ⌘2, matching the tab order.
+    /// ⌃1 / ⌃2, matching the tab order.
     var commandDigit: String {
         switch self {
         case .notes: return "1"

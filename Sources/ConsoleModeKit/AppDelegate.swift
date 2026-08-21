@@ -176,13 +176,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // A local monitor sees keyDown before the responder chain, so these reach
+        // us even while the capture field holds focus.
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            if event.keyCode == 53, self.panel.isPanelVisible {
+            guard let self, self.panel.isPanelVisible else { return event }
+            guard let action = ConsoleKeyBinding.action(for: event) else { return event }
+
+            switch action {
+            case .dismiss:
                 self.dismissConsole()
-                return nil
+            case .selectTab(let tab):
+                self.shell.select(tab)
+                if tab == .notes { self.model.requestInputFocus() }
+            case .cycleTab:
+                self.shell.cycleTab()
+                if self.shell.activeTab == .notes { self.model.requestInputFocus() }
+            case .refreshUsage:
+                Task { await self.usage.refresh() }
             }
-            return event
+            // Swallowed: a bare digit must not also land in the text field.
+            return nil
         }
     }
 
