@@ -108,13 +108,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusItemAppearance() {
         guard let button = statusItem?.button else { return }
         let severity = usage.worstSeverity
-        let isLow = severity > .healthy
-        button.image = NSImage(
-            systemSymbolName: isLow ? "gauge.with.needle" : "note.text",
-            accessibilityDescription: "Console Mode"
-        )
-        button.contentTintColor = isLow ? NSColor(shell.theme.color(for: severity)) : nil
-        button.toolTip = isLow
+        StatusItemAppearance.forSeverity(severity).apply(to: button)
+        button.toolTip = severity > .healthy
             ? usage.rollup.first.map { "\($0.displayName): \(UsageAlert.format($0.remainingFraction ?? 0)) left" }
             : nil
     }
@@ -126,7 +121,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "Console Mode")
+            // Same helper as the severity updates, so the template flag is set on
+            // every path rather than only after the first usage poll.
+            StatusItemAppearance.forSeverity(.healthy).apply(to: button)
         }
 
         let menu = NSMenu()
