@@ -2,9 +2,9 @@ import CoreGraphics
 import Testing
 @testable import ConsoleModeKit
 
-/// With three providers the usage tab is the taller one, so it sets the baseline.
-private let providers = 3
-private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
+/// With three limit lines the usage tab is the taller one, so it sets the baseline.
+private let lines = 3
+private let baseline = PanelGeometry.baselineHeight(lineCount: lines)
 
 @Test func bothTabsShareTheRestingHeight() {
     // The whole point: switching tabs must not move the card or the input bar.
@@ -13,7 +13,7 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
             tab: tab,
             expanded: false,
             visibleRowCount: 1,
-            providerCount: providers,
+            lineCount: lines,
             screenVisibleHeight: 1_000
         )
         #expect(height == baseline)
@@ -21,14 +21,14 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
 }
 
 @Test func baselineTakesTheTallerTab() {
-    // Many providers: usage wins.
-    #expect(PanelGeometry.baselineHeight(providerCount: 8) == PanelGeometry.usageHeight(providerCount: 8))
-    // A single provider is shorter than the notes chrome, so notes wins.
-    #expect(PanelGeometry.baselineHeight(providerCount: 1) == PanelGeometry.contentHeight(visibleRowCount: 1))
+    // Eight limits, as the real payload reports: usage wins.
+    #expect(PanelGeometry.baselineHeight(lineCount: 8) == PanelGeometry.usageHeight(lineCount: 8))
+    // A single limit line is shorter than the notes chrome, so notes wins.
+    #expect(PanelGeometry.baselineHeight(lineCount: 1) == PanelGeometry.contentHeight(visibleRowCount: 1))
 }
 
 @Test func rowCapacityFillsTheBaseline() {
-    let capacity = PanelGeometry.notesRowCapacity(providerCount: providers)
+    let capacity = PanelGeometry.notesRowCapacity(lineCount: lines)
     #expect(capacity >= 1)
 
     // The rows that fit must not overflow the shared height.
@@ -43,7 +43,7 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
         tab: .notes,
         expanded: false,
         visibleRowCount: 1,
-        providerCount: providers,
+        lineCount: lines,
         screenVisibleHeight: 1_000
     )
     #expect(height == baseline)
@@ -55,7 +55,7 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
         tab: .notes,
         expanded: true,
         visibleRowCount: 1,
-        providerCount: providers,
+        lineCount: lines,
         screenVisibleHeight: 1_000
     )
     #expect(height == baseline)
@@ -66,19 +66,19 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
         tab: .notes,
         expanded: true,
         visibleRowCount: 100,
-        providerCount: providers,
+        lineCount: lines,
         screenVisibleHeight: 1_000
     )
     #expect(height == 500)
 }
 
 @Test func usageHeightGrowsPerProvider() {
-    let three = PanelGeometry.usageHeight(providerCount: 3)
-    let four = PanelGeometry.usageHeight(providerCount: 4)
+    let three = PanelGeometry.usageHeight(lineCount: 3)
+    let four = PanelGeometry.usageHeight(lineCount: 4)
     #expect(four - three == PanelGeometry.usageRowHeight)
 
     // Empty still reserves one line for the empty-state row.
-    #expect(PanelGeometry.usageHeight(providerCount: 0) == PanelGeometry.usageHeight(providerCount: 1))
+    #expect(PanelGeometry.usageHeight(lineCount: 0) == PanelGeometry.usageHeight(lineCount: 1))
 }
 
 @Test func usageTabIgnoresNoteExpansion() {
@@ -86,7 +86,7 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
         tab: .usage,
         expanded: true,
         visibleRowCount: 80,
-        providerCount: providers,
+        lineCount: lines,
         screenVisibleHeight: 1_000
     )
     #expect(expanded == baseline)
@@ -98,7 +98,7 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
         tab: .usage,
         expanded: false,
         visibleRowCount: 1,
-        providerCount: 200,
+        lineCount: 200,
         screenVisibleHeight: 800
     )
     #expect(height == 400)
@@ -116,7 +116,7 @@ private let baseline = PanelGeometry.baselineHeight(providerCount: providers)
         tab: .notes,
         expanded: false,
         visibleRowCount: 1,
-        providerCount: providers
+        lineCount: lines
     )
     #expect(frame.width == 640)
     #expect(frame.height == baseline)

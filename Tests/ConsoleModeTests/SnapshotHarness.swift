@@ -65,7 +65,7 @@ enum SnapshotHarness {
             tab: shell.activeTab,
             expanded: shell.notes.expanded,
             visibleRowCount: shell.visibleRowCount,
-            providerCount: shell.usageLineCount,
+            lineCount: shell.usageLineCount,
             screenVisibleHeight: 1_200
         )
     }

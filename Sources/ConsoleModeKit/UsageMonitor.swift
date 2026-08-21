@@ -58,6 +58,9 @@ final class UsageMonitor {
 
     var rollup: [ProviderUsage] { snapshot?.providerRollup ?? [] }
 
+    /// Every limit, grouped by provider — one row each in the usage tab.
+    var lines: [UsageLine] { snapshot?.allLines ?? [] }
+
     /// Worst severity across every provider, for the menu bar indicator.
     var worstSeverity: UsageSeverity {
         rollup.map(\.severity).max() ?? .healthy

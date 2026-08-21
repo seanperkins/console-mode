@@ -62,8 +62,25 @@ struct UsageLimit: Codable, Equatable, Sendable {
         return nil
     }
 
+    /// The limit's own label wins: it carries the qualifier that distinguishes
+    /// sibling meters sharing a window, like "7 days (Spark)" versus "7 days", or
+    /// Cursor's "Cursor Models" and "Other Models" which are both "Monthly".
     var windowLabel: String {
-        window?.label ?? window?.id ?? label ?? "limit"
+        label ?? window?.label ?? window?.id ?? "limit"
+    }
+
+    /// Absolute figures for the tooltip, where the unit matters — Cursor bills in
+    /// dollars while the others report percentages.
+    var amountDetail: String? {
+        guard let used = amount.used else { return nil }
+        let unit = amount.unit ?? ""
+        func number(_ value: Double) -> String {
+            value == value.rounded() ? String(Int(value)) : String(format: "%.2f", value)
+        }
+        let usedText = unit == "usd" ? "$\(number(used))" : "\(number(used))%"
+        guard let cap = amount.limit else { return "\(usedText) used" }
+        let capText = unit == "usd" ? "$\(number(cap))" : "\(number(cap))%"
+        return "\(usedText) of \(capText) used"
     }
 }
 
@@ -155,5 +172,53 @@ extension UsageSnapshot {
                 if lhs.severity != rhs.severity { return lhs.severity > rhs.severity }
                 return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
+    }
+}
+
+/// One rendered row in the usage tab: a single limit, with the provider name
+/// carried only on the first row of each group so the column stays quiet.
+struct UsageLine: Equatable, Sendable, Identifiable {
+    var limitID: String
+    /// `nil` on continuation rows — same provider as the row above.
+    var providerName: String?
+    var windowLabel: String
+    var remainingFraction: Double?
+    var severity: UsageSeverity
+    var resetDate: Date?
+    var isExhausted: Bool
+    /// Absolute figures for the tooltip.
+    var amountDetail: String?
+
+    var id: String { limitID }
+}
+
+extension UsageSnapshot {
+    /// Every limit, grouped by provider. Providers are ordered worst-first (the
+    /// same order as `providerRollup`) and limits within a provider are ordered
+    /// worst-first too, so the binding constraint leads each group.
+    var allLines: [UsageLine] {
+        providerRollup.flatMap { provider -> [UsageLine] in
+            let sorted = provider.allLimits.sorted { lhs, rhs in
+                switch (lhs.remainingFraction, rhs.remainingFraction) {
+                case let (l?, r?): return l < r
+                // Limits with no numbers sink to the bottom of their group.
+                case (nil, _?): return false
+                case (_?, nil): return true
+                default: return lhs.id < rhs.id
+                }
+            }
+            return sorted.enumerated().map { index, limit in
+                UsageLine(
+                    limitID: limit.id,
+                    providerName: index == 0 ? provider.displayName : nil,
+                    windowLabel: limit.windowLabel,
+                    remainingFraction: limit.remainingFraction,
+                    severity: limit.remainingFraction.map(UsageSeverity.forRemaining) ?? .healthy,
+                    resetDate: limit.window?.resetDate,
+                    isExhausted: limit.isExhausted,
+                    amountDetail: limit.amountDetail
+                )
+            }
+        }
     }
 }

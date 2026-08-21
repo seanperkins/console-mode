@@ -243,3 +243,70 @@ private func snapshot(_ limits: [(provider: String, id: String, remaining: Doubl
     #expect(UsageAlert.format(0) == "0%")
     #expect(UsageAlert.format(1) == "100%")
 }
+
+// MARK: - All-limits grouping
+
+@Test func everyLimitGetsItsOwnLine() throws {
+    let url = try #require(Bundle.module.url(forResource: "Fixtures/usage-sample", withExtension: "json"))
+    let decoded = try UsageClient.decode(try Data(contentsOf: url))
+
+    let lines = decoded.allLines
+    let totalLimits = decoded.reports.reduce(0) { $0 + $1.limits.count }
+    #expect(lines.count == totalLimits)
+    #expect(lines.count == 8)
+    // No limit is dropped or duplicated.
+    #expect(Set(lines.map(\.limitID)).count == 8)
+}
+
+@Test func providerNameAppearsOncePerGroup() {
+    let snap = snapshot([
+        ("openai-codex", "x:7d", 0.11, nil, "ok"),
+        ("openai-codex", "x:5h", 1.0, nil, "ok"),
+        ("anthropic", "a:7d", 0.81, nil, "ok"),
+    ])
+    let lines = snap.allLines
+
+    #expect(lines.count == 3)
+    // First row of each group carries the label; continuations stay blank so the
+    // column reads as one block per provider.
+    #expect(lines.map(\.providerName) == ["Codex", nil, "Anthropic"])
+}
+
+@Test func limitsAreWorstFirstWithinAProvider() {
+    let snap = snapshot([
+        ("anthropic", "a:5h", 0.93, nil, "ok"),
+        ("anthropic", "a:7d", 0.31, nil, "ok"),
+        ("anthropic", "a:fable", 1.0, nil, "ok"),
+    ])
+    #expect(snap.allLines.map(\.limitID) == ["a:7d", "a:5h", "a:fable"])
+}
+
+@Test func groupsAreWorstProviderFirst() {
+    let snap = snapshot([
+        ("anthropic", "a:7d", 0.81, nil, "ok"),
+        ("cursor", "c:api", 0, nil, "exhausted"),
+        ("openai-codex", "x:7d", 0.11, nil, "ok"),
+    ])
+    #expect(snap.allLines.compactMap(\.providerName) == ["Cursor", "Codex", "Anthropic"])
+}
+
+@Test func limitsWithoutNumbersSinkWithinTheirGroup() {
+    let snap = snapshot([
+        ("cursor", "c:nodata", nil, nil, "ok"),
+        ("cursor", "c:api", 0.4, nil, "ok"),
+    ])
+    let lines = snap.allLines
+    #expect(lines.map(\.limitID) == ["c:api", "c:nodata"])
+    #expect(lines.last?.remainingFraction == nil)
+}
+
+@Test func lineSeverityMatchesItsOwnLimit() {
+    let snap = snapshot([
+        ("openai-codex", "x:7d", 0.03, nil, "ok"),
+        ("openai-codex", "x:5h", 0.90, nil, "ok"),
+    ])
+    let lines = snap.allLines
+    // Each row is coloured by its own window, not by the provider's worst.
+    #expect(lines[0].severity == .critical)
+    #expect(lines[1].severity == .healthy)
+}

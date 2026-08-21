@@ -1,39 +1,42 @@
 import AppKit
 import SwiftUI
 
-/// One provider on one line: name, bar, remaining, window and reset.
-///
-/// The tightest window is the only one shown, because that is the limit that
-/// will actually stop work. The full breakdown is in the row tooltip.
+/// One limit per line. The provider name appears only on the first line of each
+/// group, so the eye reads a block per provider without the name repeating.
 struct UsageRow: View {
     @Environment(\.theme) private var theme
-    let provider: ProviderUsage
+    let line: UsageLine
 
-    private var tint: Color { theme.color(for: provider.severity) }
+    private var tint: Color { theme.color(for: line.severity) }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Text(theme.label(provider.displayName))
-                .font(theme.bodyFont)
+        HStack(spacing: 8) {
+            Text(line.providerName.map(theme.label) ?? "")
+                .font(theme.captionFont)
                 .tracking(theme.labelTracking)
+                .foregroundStyle(theme.textPrimary)
                 .lineLimit(1)
-                .frame(width: 104, alignment: .leading)
+                .frame(width: 88, alignment: .leading)
 
-            meter
-                .frame(width: 130)
-
-            Text(remainingText)
-                .font(theme.meterFont)
-                .foregroundStyle(provider.remainingFraction == nil ? theme.textTertiary : tint)
-                // Monospaced "100% left" needs the room, and must never wrap.
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(width: 82, alignment: .trailing)
-
-            Text(windowText)
+            Text(line.windowLabel)
                 .font(theme.captionFont)
                 .foregroundStyle(theme.textSecondary)
                 .lineLimit(1)
+                .truncationMode(.tail)
+                // Wide enough for the longest real label, "Claude 7 Day (Fable)".
+                .frame(width: 168, alignment: .leading)
+
+            meter
+                .frame(width: 118)
+
+            Text(remainingText)
+                .font(theme.meterFont)
+                .foregroundStyle(line.remainingFraction == nil ? theme.textTertiary : tint)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                // "left" stays on every row: the meter fills with what is *spent*,
+                // so a bare number would be ambiguous.
+                .frame(width: 84, alignment: .trailing)
 
             Spacer(minLength: 0)
 
@@ -52,51 +55,60 @@ struct UsageRow: View {
     /// Fills with the *used* portion, so a full bar reads as "spent".
     @ViewBuilder
     private var meter: some View {
-        let used = provider.remainingFraction.map { 1 - $0 }
+        let used = line.remainingFraction.map { 1 - $0 }
         switch theme.meterStyle {
         case .capsule:
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     Capsule().fill(theme.meterTrack)
-                    if let used {
+                    // Nothing spent must draw nothing: a minimum-width sliver
+                    // would read as usage on an untouched limit.
+                    if let used, used > 0 {
                         Capsule()
                             .fill(tint)
                             .frame(width: max(2, geometry.size.width * used))
                     }
                 }
             }
-            .frame(height: 6)
+            .frame(height: 5)
 
         case .segmented(let count):
-            // Terminal-style cells: the count of lit blocks is readable at a glance
-            // without reading the number.
+            // The count of lit cells is readable without reading the number.
             let lit = used.map { Int(($0 * Double(count)).rounded(.up)) } ?? 0
-            HStack(spacing: 2) {
+            HStack(spacing: 1.5) {
                 ForEach(0..<count, id: \.self) { index in
                     Rectangle()
                         .fill(index < lit ? tint : theme.meterTrack)
-                        .frame(height: 10)
+                        .frame(height: 8)
                 }
             }
-            .shadow(color: tint.opacity(theme.glowRadius > 0 ? 0.7 : 0), radius: 3)
+            .shadow(color: tint.opacity(theme.glowRadius > 0 ? 0.6 : 0), radius: 2)
         }
     }
 
     private var remainingText: String {
-        guard let fraction = provider.remainingFraction else { return "—" }
+        guard let fraction = line.remainingFraction else { return "—" }
         return UsageAlert.format(fraction) + " left"
     }
 
-    private var windowText: String {
-        provider.limit?.windowLabel ?? ""
+    private var resetText: String {
+        guard let reset = line.resetDate else {
+            return line.isExhausted ? "exhausted" : ""
+        }
+        let seconds = reset.timeIntervalSinceNow
+        // A window whose reset has already passed says nothing useful.
+        guard seconds > 0 else { return "" }
+        return "in " + UsageRow.relative(reset)
     }
 
-    private var resetText: String {
-        if provider.limit?.isExhausted == true, provider.limit?.window?.resetDate == nil {
-            return "exhausted"
+    private var tooltip: String {
+        var parts: [String] = [line.windowLabel]
+        if let detail = line.amountDetail { parts.append(detail) }
+        if let reset = line.resetDate, reset.timeIntervalSinceNow > 0 {
+            parts.append("resets in " + UsageRow.relative(reset))
         }
-        guard let reset = provider.limit?.window?.resetDate else { return "" }
-        return "resets " + UsageRow.relative(reset)
+        if line.isExhausted { parts.append("exhausted") }
+        return parts.joined(separator: " · ")
     }
 
     /// Short relative form: the exact minute rarely matters, the day does.
@@ -107,22 +119,13 @@ struct UsageRow: View {
         formatter.allowedUnits = seconds < 3600 ? [.minute] : (seconds < 86_400 ? [.hour] : [.day])
         formatter.unitsStyle = .abbreviated
         formatter.maximumUnitCount = 1
-        return "in " + (formatter.string(from: seconds) ?? "")
-    }
-
-    private var tooltip: String {
-        provider.allLimits.map { limit in
-            let remaining = limit.remainingFraction.map { UsageAlert.format($0) + " left" } ?? "no data"
-            let reset = limit.window?.resetDate.map { " · resets " + UsageRow.relative($0) } ?? ""
-            let flag = limit.isExhausted ? " · exhausted" : ""
-            return "\(limit.windowLabel): \(remaining)\(reset)\(flag)"
-        }
-        .joined(separator: "\n")
+        return (formatter.string(from: seconds) ?? "")
     }
 
     private var accessibilityText: String {
-        let remaining = provider.remainingFraction.map { UsageAlert.format($0) + " remaining" } ?? "no data"
-        return "\(provider.displayName), \(windowText), \(remaining)"
+        let remaining = line.remainingFraction.map { UsageAlert.format($0) + " remaining" } ?? "no data"
+        let provider = line.providerName ?? ""
+        return "\(provider) \(line.windowLabel), \(remaining)"
     }
 }
 
@@ -132,11 +135,11 @@ struct UsageView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if monitor.rollup.isEmpty {
+            if monitor.lines.isEmpty {
                 emptyRow
             } else {
-                ForEach(monitor.rollup) { provider in
-                    UsageRow(provider: provider)
+                ForEach(monitor.lines) { line in
+                    UsageRow(line: line)
                 }
             }
 

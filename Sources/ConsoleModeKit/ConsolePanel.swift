@@ -131,7 +131,7 @@ final class ConsolePanel: NSPanel {
             tab: shell.activeTab,
             expanded: shell.notes.expanded,
             visibleRowCount: shell.visibleRowCount,
-            providerCount: shell.usageLineCount
+            lineCount: shell.usageLineCount
         )
     }
 
@@ -183,7 +183,7 @@ struct ConsoleRootView: View {
             // Tabs and provider count both change the card height.
             .onChange(of: shell.activeTab) { _, _ in onLayoutChange() }
             .onChange(of: shell.usageLineCount) { _, _ in
-                // Provider count sets the resting height, so the notes tab's row
+                // Limit count sets the resting height, so the notes tab's row
                 // capacity has to follow it.
                 shell.syncCollapsedCapacity()
                 onLayoutChange()

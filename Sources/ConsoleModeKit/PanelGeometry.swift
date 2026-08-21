@@ -12,8 +12,9 @@ enum PanelGeometry {
     static let dropOffset: CGFloat = 24
     /// Compact tab strip above the content on every tab.
     static let tabBarHeight: CGFloat = 28
-    /// One provider per line in the usage tab.
-    static let usageRowHeight: CGFloat = 30
+    /// One limit per line in the usage tab. Tighter than a note row because the
+    /// text is denser and every limit is on screen at once.
+    static let usageRowHeight: CGFloat = 22
     /// Footer line carrying refresh time and errors.
     static let usageFooterHeight: CGFloat = 18
 
@@ -29,10 +30,10 @@ enum PanelGeometry {
     /// Chrome around the note list: everything that is not a note row.
     static let notesChrome: CGFloat = tabBarHeight + verticalPadding * 2 + dividerHeight + inputHeight
 
-    /// One line per provider, so the height is a direct function of how many
-    /// accounts `omp usage` reports.
-    static func usageHeight(providerCount: Int) -> CGFloat {
-        let lines = max(providerCount, 1)
+    /// One line per limit, so the height is a direct function of how many limits
+    /// `omp usage` reports across every provider.
+    static func usageHeight(lineCount: Int) -> CGFloat {
+        let lines = max(lineCount, 1)
         return tabBarHeight
             + verticalPadding * 2
             + CGFloat(lines) * usageRowHeight
@@ -40,32 +41,31 @@ enum PanelGeometry {
             + usageFooterHeight
     }
 
-    /// The height both tabs share at rest. The usage tab cannot shrink — it needs
-    /// one line per provider — so it sets the floor, and the notes tab matches it.
-    /// That keeps the input bar from jumping when switching tabs.
-    static func baselineHeight(providerCount: Int) -> CGFloat {
-        max(contentHeight(visibleRowCount: 1), usageHeight(providerCount: providerCount))
+    /// The height both tabs share at rest. Whichever tab needs more room sets the
+    /// floor and the other matches it, so switching never moves the input bar.
+    static func baselineHeight(lineCount: Int) -> CGFloat {
+        max(contentHeight(visibleRowCount: 1), usageHeight(lineCount: lineCount))
     }
 
     /// Note rows that fit inside the shared baseline, so the notes tab spends the
     /// extra space on history instead of empty padding.
-    static func notesRowCapacity(providerCount: Int) -> Int {
-        let available = baselineHeight(providerCount: providerCount) - notesChrome
+    static func notesRowCapacity(lineCount: Int) -> Int {
+        let available = baselineHeight(lineCount: lineCount) - notesChrome
         return max(1, Int((available / rowHeight).rounded(.down)))
     }
 
-    static func collapsedHeight(providerCount: Int = 0) -> CGFloat {
-        baselineHeight(providerCount: providerCount)
+    static func collapsedHeight(lineCount: Int = 0) -> CGFloat {
+        baselineHeight(lineCount: lineCount)
     }
 
     static func panelHeight(
         tab: ConsoleTab,
         expanded: Bool,
         visibleRowCount: Int,
-        providerCount: Int,
+        lineCount: Int,
         screenVisibleHeight: CGFloat
     ) -> CGFloat {
-        let baseline = baselineHeight(providerCount: providerCount)
+        let baseline = baselineHeight(lineCount: lineCount)
         let desired: CGFloat
         switch tab {
         case .notes:
@@ -74,8 +74,8 @@ enum PanelGeometry {
                 ? max(contentHeight(visibleRowCount: visibleRowCount), baseline)
                 : baseline
         case .usage:
-            // Baseline, not raw usage height: with few providers the notes tab is
-            // the taller one, and both must agree for the card to stay still.
+            // Baseline, not raw usage height: with few limits the notes tab is the
+            // taller one, and both must agree for the card to stay still.
             desired = baseline
         }
         // Never taller than half the screen, on either tab.
@@ -87,13 +87,13 @@ enum PanelGeometry {
         tab: ConsoleTab,
         expanded: Bool,
         visibleRowCount: Int,
-        providerCount: Int
+        lineCount: Int
     ) -> CGRect {
         let height = panelHeight(
             tab: tab,
             expanded: expanded,
             visibleRowCount: visibleRowCount,
-            providerCount: providerCount,
+            lineCount: lineCount,
             screenVisibleHeight: screen.visibleHeight
         )
         let x = screen.visibleOriginX + (screen.visibleWidth - cardWidth) / 2

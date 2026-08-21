@@ -32,7 +32,7 @@ final class ConsoleShell {
     /// The usage tab sets the resting height, so the notes tab shows as many rows
     /// as that height allows.
     func syncCollapsedCapacity() {
-        notes.collapsedRowCapacity = PanelGeometry.notesRowCapacity(providerCount: usageLineCount)
+        notes.collapsedRowCapacity = PanelGeometry.notesRowCapacity(lineCount: usageLineCount)
     }
 
     var tabs: [ConsoleTab] {
@@ -67,8 +67,9 @@ final class ConsoleShell {
     /// Rows the notes tab wants to show, used for panel height.
     var visibleRowCount: Int { notes.visibleRowCount }
 
-    /// Lines the usage tab wants to show; at least one so the empty state fits.
+    /// Rows the usage tab wants: one per limit across every provider, and at
+    /// least one so the empty state fits.
     var usageLineCount: Int {
-        max(usage.rollup.count, 1)
+        max(usage.lines.count, 1)
     }
 }
