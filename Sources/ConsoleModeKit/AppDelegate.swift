@@ -108,7 +108,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusItemAppearance() {
         guard let button = statusItem?.button else { return }
         let severity = usage.worstSeverity
-        StatusItemAppearance.forSeverity(severity).apply(to: button)
+        let item = StatusItemAppearance.forSeverity(severity)
+        item.apply(to: button)
         button.toolTip = severity > .healthy
             ? usage.rollup.first.map { "\($0.displayName): \(UsageAlert.format($0.remainingFraction ?? 0)) left" }
             : nil
