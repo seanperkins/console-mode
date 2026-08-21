@@ -3,7 +3,7 @@ BUNDLE := $(APP_NAME).app
 BUILD_DIR := .build/release
 BINARY := $(BUILD_DIR)/$(APP_NAME)
 
-.PHONY: build bundle run test clean
+.PHONY: build bundle run test snapshots clean
 
 build:
 	swift build -c release
@@ -20,6 +20,13 @@ run: bundle
 
 test:
 	swift test
+
+# Headless render of the real panel views to /tmp/console-mode-snapshots.
+# Needs no Screen Recording or Accessibility permission and never shows a window.
+snapshots:
+	swift test --filter PanelHarnessTests
+	@echo
+	@ls -1 /tmp/console-mode-snapshots/*.png
 
 clean:
 	swift package clean

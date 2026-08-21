@@ -58,10 +58,24 @@ final class NoteListModel {
         editingNoteID != nil
     }
 
+    /// Rows the current tab state wants loaded.
+    private var observationLimit: Int {
+        expanded ? 200 : max(1, collapsedRowCapacity)
+    }
+
+    /// Synchronous re-read. `ValueObservation` delivers asynchronously, so without
+    /// this the card paints empty on first summon, and any read-after-write (the
+    /// completion checkbox) would see a stale row.
+    func refreshNotes() {
+        if let fresh = try? store.fetchRecent(limit: observationLimit) {
+            notes = fresh
+        }
+    }
+
     func restartObservation() {
         observation?.cancel()
-        let limit = expanded ? 200 : max(1, collapsedRowCapacity)
-        observation = store.observeRecent(limit: limit) { [weak self] notes in
+        refreshNotes()
+        observation = store.observeRecent(limit: observationLimit) { [weak self] notes in
             Task { @MainActor in
                 self?.notes = notes
             }
@@ -319,6 +333,9 @@ final class NoteListModel {
         guard let id = note.id else { return }
         do {
             try store.setCompleted(id: id, completed: !note.isCompleted)
+            // `editingNote` reads `notes` first, so it has to see the new value
+            // immediately rather than waiting for the observation to land.
+            refreshNotes()
         } catch {
             NSLog("Failed to toggle completion: \(error)")
         }

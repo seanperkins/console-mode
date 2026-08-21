@@ -60,29 +60,39 @@ import Testing
     #expect(Color(hex: 0x0000FF) == Color(.sRGB, red: 0, green: 0, blue: 1, opacity: 1))
 }
 
-@Test func unknownStoredThemeFallsBackToSystem() {
-    let defaults = UserDefaults.standard
-    let key = "theme.id"
-    let original = defaults.string(forKey: key)
-    defer {
-        if let original { defaults.set(original, forKey: key) } else { defaults.removeObject(forKey: key) }
+/// These mutate one shared `UserDefaults` key, so they must not run in parallel
+/// with each other or they clobber the value under test.
+@Suite(.serialized)
+struct ThemeStorageTests {
+    private static let key = "theme.id"
+
+    private func withRestoredDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let original = defaults.string(forKey: Self.key)
+        defer {
+            if let original {
+                defaults.set(original, forKey: Self.key)
+            } else {
+                defaults.removeObject(forKey: Self.key)
+            }
+        }
+        body()
     }
 
-    defaults.set("does-not-exist", forKey: key)
-    #expect(ThemeStore.currentID == .system)
-}
-
-@Test func themeRoundTripsThroughStorage() {
-    let defaults = UserDefaults.standard
-    let key = "theme.id"
-    let original = defaults.string(forKey: key)
-    defer {
-        if let original { defaults.set(original, forKey: key) } else { defaults.removeObject(forKey: key) }
+    @Test func unknownStoredThemeFallsBackToSystem() {
+        withRestoredDefaults {
+            UserDefaults.standard.set("does-not-exist", forKey: Self.key)
+            #expect(ThemeStore.currentID == .system)
+        }
     }
 
-    ThemeStore.currentID = .cyberpunk
-    #expect(ThemeStore.currentID == .cyberpunk)
-    #expect(ThemeStore.current.meterStyle == ThemeTokens.cyberpunk.meterStyle)
+    @Test func themeRoundTripsThroughStorage() {
+        withRestoredDefaults {
+            ThemeStore.currentID = .cyberpunk
+            #expect(ThemeStore.currentID == .cyberpunk)
+            #expect(ThemeStore.current.meterStyle == ThemeTokens.cyberpunk.meterStyle)
+        }
+    }
 }
 
 @Test func tabCyclingWrapsInOrder() {

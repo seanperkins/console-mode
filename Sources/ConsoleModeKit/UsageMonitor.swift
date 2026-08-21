@@ -63,9 +63,15 @@ final class UsageMonitor {
         rollup.map(\.severity).max() ?? .healthy
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, seeded: UsageSnapshot? = nil) {
         self.defaults = defaults
         firedThresholds = defaults.dictionary(forKey: Self.firedKey) as? [String: Double] ?? [:]
+        if let seeded {
+            // Deterministic input for the offscreen harness and tests: no process
+            // launch, no network, no clock dependency.
+            snapshot = seeded
+            lastRefresh = Date(timeIntervalSince1970: 1_787_261_100)
+        }
     }
 
     // MARK: - Polling
