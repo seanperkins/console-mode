@@ -41,31 +41,31 @@ Commit: `feat: tab-aware key routing contract for a future terminal tab`.
 
 ---
 
-### Task 1: Dependency + lazy PTY session on ConsoleShell (TDD where sync logic exists)
+### Task 1: Dependency + `TerminalConfig` + lazy-activation state — **done, revised below**
 
-Files: `Package.swift` (add `Lakr233/libghostty-spm`, `GhosttyTerminal` product only), `ConsoleShell.swift`, new `TerminalSession.swift`.
+Files: `Package.swift` (added `Lakr233/libghostty-spm`, `GhosttyTerminal` product only), `TerminalConfig.swift` (pure settings struct + `TerminalSettings`, mirrors `UsageConfig`), `ConsoleShell.swift` (`terminalEnabled`, `hasActivatedTerminal`).
 
-API: `ConsoleShell.terminalEnabled: Bool` (mirrors `usageEnabled`, gated by a `terminalSettings` config the same shape as `UsageConfig`). `TerminalSession` wraps the PTY `Process` + the bytes-in/bytes-out bridge `GhosttyTerminal`'s `.inMemory(session)` backend expects. **Spawned on first access, not at `ConsoleShell.init`** — a computed/lazy property, not eager construction, so an app where the terminal tab is never opened pays zero cost for this feature ever having shipped.
+**Revision from the originally written Task 1/2 split, found while reading the real API before writing Task 2:** there is no hand-rolled `Process`+`Pipe` PTY bridge to write. `GhosttyTerminal` ships a `TerminalSessionBackend.exec` case — setting `TerminalSurfaceOptions(backend: .exec, workingDirectory:, envVars:, command: nil)` spawns a *real* PTY to the user's actual login shell (`$SHELL`, unset `command` = the engine's own default, the same code path the real Ghostty app uses), entirely inside `libghostty`'s C core. `.inMemory(session)` — the bytes-in/bytes-out bridge `TerminalSession.swift` was going to wrap — is for a host that wants to intercept/synthesize the byte stream itself (e.g. `ShellCraftKit`'s sandboxed shell). We want the user's real shell, so `.exec` is correct and there is nothing left to hand-roll: no `TerminalSession.swift` file, no custom scrollback counter (the engine owns scrollback; `TerminalConfig.scrollbackLines` still exists as the number handed to it once Task 2 wires it through, if the API exposes a knob — verify during Task 2 and drop the setting if it doesn't).
 
-Tests: `TerminalSession` construction is lazy (a fresh `ConsoleShell` with `terminalEnabled = true` has spawned nothing until the terminal tab is first selected — assert via a process-count or spawn-flag check, not a real PTY in unit tests if avoidable). Scrollback cap is enforced (a synthetic 10,000-line write leaves at most 5,000 buffered — check whatever counter `GhosttyTerminal`'s API exposes for this, or model it at the bridge layer if the library doesn't cap for you).
-
-Verify: `swift build` clean. `swift test` — new tests pass, full suite still 220+/220+.
-
-Commit: `feat: lazy PTY session behind ConsoleShell, GhosttyTerminal dependency`.
+Commit: `feat: libghostty-spm dependency, TerminalConfig, lazy terminal-activation state` (landed).
 
 ---
 
-### Task 2: TerminalView + tab wiring, with the visibility contract enforced
+### Task 2: TerminalView + tab wiring, with the visibility *and persistence* contract enforced
 
-Files: new `TerminalTabView.swift` (SwiftUI, wraps `GhosttyTerminal.TerminalSurfaceView`), `ConsoleShell.swift` (`ConsoleTab.terminal` case), `ConsoleView.swift` (tab switch), `PanelGeometry.swift` (fixed terminal height — a constant, not a computed row count; do not reuse `contentHeight`/`usageHeight`'s row-based math).
+Files: new `TerminalTabView.swift` (SwiftUI, wraps `GhosttyTerminal.TerminalSurfaceView` + `TerminalViewState`, backend `.exec`), `ConsoleTab.swift` (add the `.terminal` case — every exhaustive switch over `ConsoleTab` needs a case added in this same commit: `title`/`symbol`/`commandDigit`, `ConsoleShell.select`, `ConsoleView.body`, `PanelGeometry.panelHeight`), `ConsoleShell.swift` (`select(.terminal)` calls `markTerminalActivated()`), `ConsoleView.swift`, `PanelGeometry.swift` (fixed `terminalHeight: CGFloat` constant — no per-content sizing), `AppDelegate.swift` (pass `terminalActive: shell.activeTab == .terminal` into `ConsoleKeyBinding.action(for:terminalActive:)`, closing the loop Task 0 opened).
 
-Change: `TerminalTabView` sets `isSurfaceVisible = (shell.activeTab == .terminal)` and additionally `false` whenever the panel itself is not shown (wire through whatever `ConsolePanel`/`ConsoleShell` visibility signal already exists for prewarm/dismiss) — both conditions gate rendering, matching the two idle-cost budgets above. `PanelGeometry` gets a `terminalHeight: CGFloat` constant (propose ~20 rows worth, matching `usageRowHeight`-scale reasoning, but as one fixed number — no per-content sizing) and `panelHeight(tab:...)`'s `switch` gains a `.terminal` case using it.
+**The persistence trap (found reading `TerminalViewState`/`TerminalSurfaceView` before writing this task):** `ConsoleView.body` currently does `switch shell.activeTab { case .notes: ...; case .usage: ... }` directly inside a `VStack` — SwiftUI tears down and rebuilds view identity on every case change. A naive `case .terminal: TerminalTabView(...)` in that same switch would destroy the underlying `NSView`/surface (and the PTY it owns) every time the user switched to Notes or Usage — exactly the "session survives tab switch" requirement failing silently. `GhosttyTerminal`'s own README says exactly how a host is supposed to avoid this: *"A host that keeps several surfaces mounted at once (tabs hidden behind `opacity(0)`) sets `terminal.isSurfaceVisible = false` on the hidden ones. The surface keeps its grid, scrollback, and session; only rendering stops."*
 
-Tests: `PanelGeometryTests` — `.terminal` case returns the fixed height regardless of PTY/scrollback state (it takes no row-count input, unlike notes/usage). `PanelHarnessTests` — tab switch to `.terminal` and back doesn't affect notes/usage geometry (mirrors the existing `bothTabsShareTheRestingHeight`-style tests).
+So `ConsoleView.body` needs a `ZStack`, not a bare `switch`, for the terminal case specifically: the existing `switch` keeps handling `.notes`/`.usage` exactly as today (no regression there), and `TerminalTabView` is layered on top, gated by `shell.hasActivatedTerminal` for *mounting* (stays absent from the tree — zero cost — until first activation) and by `.opacity(shell.activeTab == .terminal ? 1 : 0)` + `.allowsHitTesting(...)` for *visibility* thereafter (mounted permanently once activated, session persists, rendering gates via `isSurfaceVisible`). Two independent gates, two independent constraints — do not collapse them into one `if`.
 
-Verify: `swift build`, `swift test --filter "PanelGeometryTests|PanelHarnessTests"` green. Manual: launch, toggle to terminal tab, confirm a real prompt renders and accepts input; toggle away and back, confirm the session (cwd, scrollback, running command) survived.
+Change: `TerminalTabView` sets `context.isSurfaceVisible = (shell.activeTab == .terminal)` and additionally `false` whenever the panel itself is not shown (wire through whatever `ConsolePanel`/`ConsoleShell` visibility signal already exists for prewarm/dismiss) — both conditions gate rendering, matching the two idle-cost budgets in Global Constraints. `PanelGeometry` gets a `terminalHeight: CGFloat` constant (propose ~20 rows worth, matching `usageRowHeight`-scale reasoning) and `panelHeight(tab:...)`'s `switch` gains a `.terminal` case using it.
 
-Commit: `feat: terminal tab UI wired to lazy PTY session with visibility gating`.
+Tests: `PanelGeometryTests` — `.terminal` case returns the fixed height regardless of PTY/scrollback state. `PanelHarnessTests` — tab switch to `.terminal` and back doesn't affect notes/usage geometry; `hasActivatedTerminal` flips exactly once across repeated `.terminal` selections (already covered for the flag itself in Task 1 — this test covers `select(_:)` actually calling it). Key-routing: `AppDelegate`'s dispatch now passes `terminalActive` — no unit-testable surface there beyond what Task 0 already covers directly on `ConsoleKeyBinding`.
+
+Verify: `swift build`, `swift test --filter "PanelGeometryTests|PanelHarnessTests"` green. Manual: launch, toggle to terminal tab, confirm a real prompt renders and accepts input; toggle away and back, confirm the session (cwd, scrollback, running command) survived; confirm Esc/⌃R/⌃1 reach the shell per Task 0's contract, not the app.
+
+Commit: `feat: terminal tab UI wired to exec-backend PTY with visibility and identity persistence`.
 
 ---
 
