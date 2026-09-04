@@ -185,7 +185,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // us even while the capture field holds focus.
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isPanelVisible else { return event }
-            guard let action = ConsoleKeyBinding.action(for: event) else { return event }
+            let terminalActive = self.shell.activeTab == .terminal
+            guard let action = ConsoleKeyBinding.action(for: event, terminalActive: terminalActive) else { return event }
 
             switch action {
             case .dismiss:

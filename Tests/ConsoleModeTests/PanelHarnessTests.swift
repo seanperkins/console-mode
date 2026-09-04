@@ -173,6 +173,52 @@ struct PanelHarnessTests {
         #expect(shell.hasActivatedTerminal == true)
     }
 
+    @Test func selectingTerminalActivatesItOnce() throws {
+        let shell = try makeShell()
+        shell.terminalEnabled = true
+        #expect(shell.hasActivatedTerminal == false)
+
+        shell.select(.terminal)
+        #expect(shell.activeTab == .terminal)
+        #expect(shell.hasActivatedTerminal == true)
+
+        shell.select(.notes)
+        shell.select(.terminal)
+        #expect(shell.hasActivatedTerminal == true)
+    }
+
+    @Test func tabsAreUnavailableWhenTerminalIsOff() throws {
+        let shell = try makeShell()
+        #expect(shell.terminalEnabled == false)
+
+        shell.select(.terminal)
+        #expect(shell.activeTab == .notes)
+        #expect(shell.hasActivatedTerminal == false)
+    }
+
+    @Test func cyclingSkipsADisabledTabBetweenTwoEnabledOnes() throws {
+        let shell = try makeShell()
+        shell.usageEnabled = true
+        shell.terminalEnabled = false
+        #expect(shell.tabs == [.notes, .usage])
+
+        shell.activeTab = .notes
+        shell.cycleTab()
+        #expect(shell.activeTab == .usage)
+        shell.cycleTab()
+        #expect(shell.activeTab == .notes)
+
+        shell.terminalEnabled = true
+        #expect(shell.tabs == [.notes, .usage, .terminal])
+        shell.cycleTab()
+        #expect(shell.activeTab == .usage)
+        shell.cycleTab()
+        #expect(shell.activeTab == .terminal)
+        #expect(shell.hasActivatedTerminal == true)
+        shell.cycleTab()
+        #expect(shell.activeTab == .notes)
+    }
+
     @Test func onDataChangeExpandsPrewarmedPanelWhenUsageLinesArrive() throws {
         let store = try NoteStore.inMemory()
         _ = try store.append("alpha")
@@ -260,6 +306,8 @@ struct PanelHarnessTests {
         let shell = try makeShell()
         let notesHeight = SnapshotHarness.height(for: shell)
         shell.activeTab = .usage
+        #expect(SnapshotHarness.height(for: shell) == notesHeight)
+        shell.activeTab = .terminal
         #expect(SnapshotHarness.height(for: shell) == notesHeight)
     }
 

@@ -32,6 +32,13 @@ final class ConsoleShell {
     /// merely hidden) so tab switches never lose it.
     private(set) var hasActivatedTerminal = false
 
+    /// Mirrors `ConsolePanel.isPanelVisible`, set at the same two points the
+    /// panel flips it (`show()`/`hide()`). `TerminalTabView` reads this to
+    /// gate `isSurfaceVisible` — a summon-toggle-off must stop terminal
+    /// rendering immediately, not just a tab switch, since the panel is
+    /// dismissed far more often than the tab is changed.
+    var isPanelVisible = false
+
     /// Called once, the first time the terminal tab becomes active.
     func markTerminalActivated() {
         hasActivatedTerminal = true
@@ -50,7 +57,13 @@ final class ConsoleShell {
     }
 
     var tabs: [ConsoleTab] {
-        usageEnabled ? ConsoleTab.allCases : [.notes]
+        ConsoleTab.allCases.filter { tab in
+            switch tab {
+            case .notes: return true
+            case .usage: return usageEnabled
+            case .terminal: return terminalEnabled
+            }
+        }
     }
 
     /// Starts or stops polling to match the new setting, and leaves a tab that
@@ -74,11 +87,17 @@ final class ConsoleShell {
             Task { await usage.refresh() }
         case .notes:
             notes.requestInputFocus()
+        case .terminal:
+            markTerminalActivated()
         }
     }
 
+    /// Advances within the tabs actually shown, so a disabled tab between two
+    /// enabled ones is never a dead stop for ⌃Tab.
     func cycleTab() {
-        select(activeTab.next)
+        let available = tabs
+        guard let index = available.firstIndex(of: activeTab) else { return }
+        select(available[(index + 1) % available.count])
     }
 
     /// Rows the notes tab wants to show, used for panel height.

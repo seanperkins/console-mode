@@ -3,6 +3,7 @@ import Foundation
 enum ConsoleTab: String, CaseIterable, Identifiable, Sendable {
     case notes
     case usage
+    case terminal
 
     var id: String { rawValue }
 
@@ -10,6 +11,7 @@ enum ConsoleTab: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .notes: return "Notes"
         case .usage: return "Usage"
+        case .terminal: return "Terminal"
         }
     }
 
@@ -17,14 +19,16 @@ enum ConsoleTab: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .notes: return "note.text"
         case .usage: return "gauge.with.needle"
+        case .terminal: return "terminal"
         }
     }
 
-    /// ⌃1 / ⌃2, matching the tab order.
+    /// ⌃1 / ⌃2 / ⌃3, matching the tab order.
     var commandDigit: String {
         switch self {
         case .notes: return "1"
         case .usage: return "2"
+        case .terminal: return "3"
         }
     }
 

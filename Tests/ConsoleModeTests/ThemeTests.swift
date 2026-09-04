@@ -97,7 +97,9 @@ struct ThemeStorageTests {
 
 @Test func tabCyclingWrapsInOrder() {
     #expect(ConsoleTab.notes.next == .usage)
-    #expect(ConsoleTab.usage.next == .notes)
+    #expect(ConsoleTab.usage.next == .terminal)
+    #expect(ConsoleTab.terminal.next == .notes)
     #expect(ConsoleTab.notes.commandDigit == "1")
     #expect(ConsoleTab.usage.commandDigit == "2")
+    #expect(ConsoleTab.terminal.commandDigit == "3")
 }

@@ -54,6 +54,7 @@ enum ConsoleKeyBinding {
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "1": return .selectTab(.notes)
         case "2": return .selectTab(.usage)
+        case "3": return .selectTab(.terminal)
         case "r": return .refreshUsage
         default: return nil
         }

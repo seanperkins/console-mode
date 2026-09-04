@@ -108,11 +108,24 @@ struct ConsoleView: View {
         return VStack(spacing: 0) {
             ConsoleTabBar(shell: shell)
 
-            switch shell.activeTab {
-            case .notes:
-                notesTab(theme)
-            case .usage:
-                UsageView(monitor: shell.usage)
+            ZStack {
+                switch shell.activeTab {
+                case .notes:
+                    notesTab(theme)
+                case .usage:
+                    UsageView(monitor: shell.usage)
+                case .terminal:
+                    // Real content is TerminalTabView below, layered so its
+                    // identity — and the PTY session it owns — survives
+                    // switching away to Notes/Usage and back.
+                    Color.clear
+                }
+
+                if shell.hasActivatedTerminal {
+                    TerminalTabView(shell: shell)
+                        .opacity(shell.activeTab == .terminal ? 1 : 0)
+                        .allowsHitTesting(shell.activeTab == .terminal)
+                }
             }
         }
         .padding(.vertical, PanelGeometry.verticalPadding)

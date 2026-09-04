@@ -122,6 +122,11 @@ enum PanelGeometry {
             desired = max(notesHeight, baseline)
         case .usage:
             desired = max(baseline, usageHeight(lineCount: lineCount))
+        case .terminal:
+            // No content-driven minimum of its own (the grid fills whatever
+            // the other tabs already agreed on) — this is what keeps
+            // switching tabs from ever moving the card.
+            desired = baseline
         }
         return min(desired, screenVisibleHeight / 2)
     }

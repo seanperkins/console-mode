@@ -56,6 +56,7 @@ final class ConsolePanel: NSPanel {
         applyFrame(on: screen, animated: true, appearing: true)
         makeKeyAndOrderFront(nil)
         isPanelVisible = true
+        shell.isPanelVisible = true
         focusNotesInput()
     }
 
@@ -75,6 +76,7 @@ final class ConsolePanel: NSPanel {
             guard let self else { return }
             self.orderOut(nil)
             self.isPanelVisible = false
+            self.shell.isPanelVisible = false
         }
     }
 
