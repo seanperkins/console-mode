@@ -42,25 +42,36 @@ enum ReminderScheduler {
         }
     }
 
+    /// Schedules the notification(s) for a note.
+    ///
+    /// Design choice: recurring notes use `UNCalendarNotificationTrigger`'s own
+    /// `repeats: true` support, which natively expresses "every day at 9am"
+    /// (only hour/minute set) and "every Monday at 9am" (weekday+hour+minute
+    /// set) without any app-side rescheduling. `UNCalendarNotificationTrigger`
+    /// cannot express "weekdays only" as a single trigger, so that case is
+    /// broken into five weekly triggers (Mon–Fri), each independently
+    /// repeating. Because the OS owns the repeat, this keeps firing correctly
+    /// even across long stretches where the app itself isn't running — unlike
+    /// scheduling only the next single occurrence and relying on the app to
+    /// notice it fired and queue the next one.
     static func schedule(note: Note) async {
         guard let center else { return }
-        guard let id = note.id, let fireDate = note.remindDate, fireDate > Date() else {
-            if let id = note.id {
-                cancel(noteID: id)
-            }
+        guard let id = note.id, note.remindAt != nil else {
+            if let id = note.id { cancel(noteID: id) }
             return
         }
 
         guard await requestAuthorizationIfNeeded() else { return }
+        cancel(noteID: id)
 
-        let content = UNMutableNotificationContent()
-        content.title = "Console Mode"
-        content.body = note.body
-        if let project = note.project, !project.isEmpty {
-            content.subtitle = project
+        let content = makeContent(for: note)
+
+        if let rule = note.recurrenceRule {
+            await scheduleRecurring(rule, noteID: id, content: content, center: center)
+            return
         }
-        content.sound = .default
 
+        guard let fireDate = note.remindDate, fireDate > Date() else { return }
         let components = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute, .second],
             from: fireDate
@@ -70,12 +81,69 @@ enum ReminderScheduler {
         try? await center.add(request)
     }
 
+    private static func makeContent(for note: Note) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "Console Mode"
+        content.body = note.body
+        if let project = note.project, !project.isEmpty {
+            content.subtitle = project
+        }
+        content.sound = .default
+        return content
+    }
+
+    private static func scheduleRecurring(
+        _ rule: RecurrenceRule,
+        noteID: Int64,
+        content: UNMutableNotificationContent,
+        center: UNUserNotificationCenter
+    ) async {
+        switch rule {
+        case .daily(let hour, let minute):
+            var components = DateComponents()
+            components.hour = hour
+            components.minute = minute
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+            let request = UNNotificationRequest(identifier: identifier(for: noteID), content: content, trigger: trigger)
+            try? await center.add(request)
+
+        case .weekly(let weekday, let hour, let minute):
+            var components = DateComponents()
+            components.weekday = weekday
+            components.hour = hour
+            components.minute = minute
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+            let request = UNNotificationRequest(identifier: identifier(for: noteID), content: content, trigger: trigger)
+            try? await center.add(request)
+
+        case .weekdays(let hour, let minute):
+            for weekday in 2...6 {
+                var components = DateComponents()
+                components.weekday = weekday
+                components.hour = hour
+                components.minute = minute
+                let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+                let request = UNNotificationRequest(
+                    identifier: weekdayIdentifier(for: noteID, weekday: weekday),
+                    content: content,
+                    trigger: trigger
+                )
+                try? await center.add(request)
+            }
+        }
+    }
+
     static func cancel(noteID: Int64) {
         guard let center else { return }
-        center.removePendingNotificationRequests(withIdentifiers: [identifier(for: noteID)])
+        let identifiers = [identifier(for: noteID)] + (2...6).map { weekdayIdentifier(for: noteID, weekday: $0) }
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
 
     private static func identifier(for noteID: Int64) -> String {
         "console-mode-note-\(noteID)"
+    }
+
+    private static func weekdayIdentifier(for noteID: Int64, weekday: Int) -> String {
+        "console-mode-note-\(noteID)-wd\(weekday)"
     }
 }

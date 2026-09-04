@@ -15,6 +15,8 @@ struct Note: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, S
     var taggedAt: TimeInterval? = nil
     /// When to fire a local notification for this note.
     var remindAt: TimeInterval? = nil
+    /// Recurrence cadence for the reminder above, or nil for a one-shot reminder.
+    var recurrenceRule: RecurrenceRule? = nil
     /// Whether the note needs doing something; nil = not reviewed yet.
     var actionable: Bool? = nil
     /// Short action phrase from `/analyze` (e.g. "Email landlord").
@@ -33,6 +35,7 @@ struct Note: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, S
         case projectConfidence = "project_confidence"
         case taggedAt = "tagged_at"
         case remindAt = "remind_at"
+        case recurrenceRule = "recurrence_rule"
         case actionable
         case actionSummary = "action_summary"
         case actionDetail = "action_detail"
@@ -45,8 +48,15 @@ struct Note: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, S
 
     var createdDate: Date { Date(timeIntervalSince1970: createdAt) }
 
+    /// The next date this reminder will fire. For a recurring reminder whose
+    /// stored `remindAt` has already passed (e.g. the app was closed through it),
+    /// this recomputes the next occurrence on the fly rather than showing a
+    /// stale, past date.
     var remindDate: Date? {
-        remindAt.map { Date(timeIntervalSince1970: $0) }
+        guard let remindAt else { return nil }
+        let stored = Date(timeIntervalSince1970: remindAt)
+        guard let recurrenceRule, stored <= Date() else { return stored }
+        return recurrenceRule.nextFireDate(after: Date()) ?? stored
     }
 
     var hasReminder: Bool {

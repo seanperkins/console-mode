@@ -15,9 +15,19 @@ struct SettingsView: View {
     @State private var deepSeek = DeepSeekSettings.current
     @State private var deepSeekAPIKey: String = ""
     @State private var deepSeekKeychainError: String?
+    @State private var deepSeekTestResult: String?
+    @State private var deepSeekTestInFlight = false
     private let deepSeekCredentialStore: any DeepSeekCredentialStore = KeychainDeepSeekCredentialStore()
+    @State private var openRouter = OpenRouterSettings.current
+    @State private var openRouterAPIKey: String = ""
+    @State private var openRouterKeychainError: String?
+    @State private var openRouterTestResult: String?
+    @State private var openRouterTestInFlight = false
+    private let openRouterCredentialStore: any OpenRouterCredentialStore = KeychainOpenRouterCredentialStore()
     @State private var isConfirmingClearAll = false
     @State private var pendingDeleteCount = 0
+    @State private var exportFormat: NoteExportFormat = .markdown
+    @State private var exportError: String?
 
     private var model: NoteListModel { shell.notes }
 
@@ -38,6 +48,7 @@ struct SettingsView: View {
                 usageSection
                 claudeStatusLineSection
                 deepSeekSection
+                openRouterSection
                 startupSection
                 taggingSection
                 actionReviewSection
@@ -50,6 +61,7 @@ struct SettingsView: View {
         .frame(width: 520, height: 700)
         .onAppear {
             deepSeekAPIKey = deepSeekCredentialStore.loadAPIKey() ?? ""
+            openRouterAPIKey = openRouterCredentialStore.loadAPIKey() ?? ""
         }
     }
 
@@ -208,8 +220,12 @@ struct SettingsView: View {
                 do {
                     if newValue {
                         try claudeStatusLineInstaller.install()
+                        claudeStatusLine.wasEverInstalled = true
+                        ClaudeStatusLineSettings.current = claudeStatusLine
                     } else {
                         try claudeStatusLineInstaller.uninstall()
+                        claudeStatusLine.wasEverInstalled = false
+                        ClaudeStatusLineSettings.current = claudeStatusLine
                     }
                 } catch {
                     claudeStatusLineError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -220,9 +236,19 @@ struct SettingsView: View {
 
     private var claudeStatusLineStatusText: String {
         if let claudeStatusLineError { return claudeStatusLineError }
-        return claudeStatusLineInstaller.isInstalled
-            ? "Installed. Claude Code writes a fresh reading on its next turn."
-            : "Not installed."
+        if claudeStatusLineInstaller.isInstalled {
+            return "Installed. Claude Code writes a fresh reading on its next turn."
+        }
+        // A user who turned this on but never explicitly turned it back off
+        // has drifted, not opted out — a hand-edited settings.json, another
+        // statusline tool reinstalling itself over ours, or a deleted
+        // wrapper file. Plain "Not installed." would read as "never asked
+        // for this", which is misleading and would hide a silently stopped
+        // feed.
+        if claudeStatusLine.wasEverInstalled {
+            return "⚠ Was installed, but another tool (or a hand edit) has taken over the statusline command. Toggle off then on to reclaim it."
+        }
+        return "Not installed."
     }
 
     // MARK: - DeepSeek balance
@@ -246,6 +272,23 @@ struct SettingsView: View {
                     }
                 }
 
+            HStack(spacing: 10) {
+                Button("Test connection") {
+                    Task { await testDeepSeekConnection() }
+                }
+                .disabled(deepSeekAPIKey.isEmpty || deepSeekTestInFlight)
+
+                if deepSeekTestInFlight {
+                    ProgressView().controlSize(.small)
+                }
+
+                if let deepSeekTestResult {
+                    Text(deepSeekTestResult)
+                        .font(.caption)
+                        .foregroundStyle(deepSeekTestResult.hasPrefix("✓") ? Color.green : Color.red)
+                }
+            }
+
             Text(deepSeekStatusText)
                 .font(.caption)
                 .foregroundStyle(deepSeekStatusIsError ? Color.red : Color.secondary)
@@ -268,6 +311,27 @@ struct SettingsView: View {
         }
     }
 
+    @MainActor
+    private func testDeepSeekConnection() async {
+        deepSeekTestInFlight = true
+        deepSeekTestResult = nil
+        defer { deepSeekTestInFlight = false }
+        do {
+            let balance = try await DeepSeekClient(apiKey: deepSeekAPIKey).fetch()
+            let entry = balance.balanceInfos.first { $0.currency.caseInsensitiveCompare("USD") == .orderedSame }
+                ?? balance.balanceInfos.first
+            if let entry, let total = Double(entry.totalBalance) {
+                let currency = entry.currency.uppercased()
+                let amount = String(format: "%.2f", total)
+                deepSeekTestResult = "✓ " + (currency == "USD" ? "$\(amount)" : "\(amount) \(currency)")
+            } else {
+                deepSeekTestResult = "✓ Connected"
+            }
+        } catch {
+            deepSeekTestResult = "✗ " + ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
+    }
+
     private var deepSeekStatusIsError: Bool {
         shell.usage.deepSeekError != nil
     }
@@ -279,6 +343,90 @@ struct SettingsView: View {
         return "Balance as of " + UsageView.clock(fetchedAt)
     }
 
+    // MARK: - OpenRouter balance
+
+    private var openRouterSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("OpenRouter balance")
+                .font(.headline)
+
+            Toggle("Show OpenRouter's real credit balance", isOn: $openRouter.isEnabled)
+
+            SecureField("Management key (from openrouter.ai/settings/provisioning-keys)", text: $openRouterAPIKey)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!openRouter.isEnabled)
+                .onChange(of: openRouterAPIKey) { _, updated in
+                    do {
+                        try openRouterCredentialStore.saveAPIKey(updated)
+                        openRouterKeychainError = nil
+                    } catch {
+                        openRouterKeychainError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    }
+                }
+
+            HStack(spacing: 10) {
+                Button("Test connection") {
+                    Task { await testOpenRouterConnection() }
+                }
+                .disabled(openRouterAPIKey.isEmpty || openRouterTestInFlight)
+
+                if openRouterTestInFlight {
+                    ProgressView().controlSize(.small)
+                }
+
+                if let openRouterTestResult {
+                    Text(openRouterTestResult)
+                        .font(.caption)
+                        .foregroundStyle(openRouterTestResult.hasPrefix("✓") ? Color.green : Color.red)
+                }
+            }
+
+            Text(openRouterStatusText)
+                .font(.caption)
+                .foregroundStyle(openRouterStatusIsError ? Color.red : Color.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(
+                "Reads the account's real remaining credit balance directly from OpenRouter's own " +
+                    "`GET /api/v1/credits` endpoint — the actual dollar figure you'd pay, not the " +
+                    "catalog-priced token estimate `omp stats` falls back to for providers " +
+                    "`omp usage` doesn't track. Needs a **Management key**, not a standard inference " +
+                    "key — create one at openrouter.ai/settings/provisioning-keys. When enabled this " +
+                    "replaces (not duplicates) the estimate row for OpenRouter. The key is stored in " +
+                    "the Keychain, never in app settings, and never leaves this request."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: openRouter) { _, updated in
+            OpenRouterSettings.current = updated
+        }
+    }
+
+    @MainActor
+    private func testOpenRouterConnection() async {
+        openRouterTestInFlight = true
+        openRouterTestResult = nil
+        defer { openRouterTestInFlight = false }
+        do {
+            let balance = try await OpenRouterClient(apiKey: openRouterAPIKey).fetch()
+            openRouterTestResult = "✓ $" + String(format: "%.2f", balance.remaining)
+        } catch {
+            openRouterTestResult = "✗ " + ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
+    }
+
+    private var openRouterStatusIsError: Bool {
+        shell.usage.openRouterError != nil
+    }
+
+    private var openRouterStatusText: String {
+        if let error = shell.usage.openRouterError { return error }
+        guard openRouter.isEnabled else { return "Off." }
+        guard let fetchedAt = shell.usage.openRouterBalanceFetchedAt else { return "Not fetched yet." }
+        return "Balance as of " + UsageView.clock(fetchedAt)
+    }
     private var shortcutSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Shortcut")
@@ -459,6 +607,34 @@ struct SettingsView: View {
                 .padding(.vertical, 6)
 
             HStack(spacing: 10) {
+                Picker("Export as", selection: $exportFormat) {
+                    ForEach(NoteExportFormat.allCases) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+
+                Button("Export notes…") {
+                    exportNotes()
+                }
+                .disabled(model.noteCount == 0)
+
+                if let exportError {
+                    Text(exportError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Text("Writes every note — body, tags, timestamps — to a single file you choose. A full backup, not incremental.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+                .padding(.vertical, 6)
+
+            HStack(spacing: 10) {
                 Button("Clear all notes…", role: .destructive) {
                     pendingDeleteCount = model.noteCount
                     isConfirmingClearAll = true
@@ -485,6 +661,23 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This permanently removes every note from \(NoteStore.defaultDatabaseURL().lastPathComponent). It cannot be undone.")
+        }
+    }
+
+    private func exportNotes() {
+        exportError = nil
+        let notes = model.exportAllNotes()
+        guard !notes.isEmpty else { return }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "console-mode-notes.\(exportFormat.fileExtension)"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try NoteExporter.write(notes, as: exportFormat, to: url)
+        } catch {
+            exportError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 

@@ -51,6 +51,10 @@ final class UsageMonitor {
     /// failure) is never relabeled as fresh.
     private(set) var deepSeekBalanceFetchedAt: Date?
     private(set) var deepSeekError: String?
+    private(set) var openRouterBalance: OpenRouterBalanceResponse?
+    /// See `deepSeekBalanceFetchedAt` — same staleness contract.
+    private(set) var openRouterBalanceFetchedAt: Date?
+    private(set) var openRouterError: String?
     private(set) var lastError: String?
     private(set) var isRefreshing = false
     private(set) var lastRefresh: Date?
@@ -85,6 +89,10 @@ final class UsageMonitor {
             let fetchedAtMs = deepSeekBalanceFetchedAt.timeIntervalSince1970 * 1000
             if let deepSeekReport = deepSeekBalance.asUsageReport(fetchedAt: fetchedAtMs) { extra.append(deepSeekReport) }
         }
+        if let openRouterBalance, let openRouterBalanceFetchedAt {
+            let fetchedAtMs = openRouterBalanceFetchedAt.timeIntervalSince1970 * 1000
+            if let report = openRouterBalance.asUsageReport(fetchedAt: fetchedAtMs) { extra.append(report) }
+        }
 
         guard var snap = snapshot else {
             guard !extra.isEmpty else { return nil }
@@ -111,6 +119,7 @@ final class UsageMonitor {
     }
 
     private let deepSeekCredentialStore: any DeepSeekCredentialStore
+    private let openRouterCredentialStore: any OpenRouterCredentialStore
 
     init(
         defaults: UserDefaults = .standard,
@@ -118,10 +127,13 @@ final class UsageMonitor {
         seededStats: StatsSnapshot? = nil,
         seededClaudeStatus: ClaudeStatusSnapshot? = nil,
         seededDeepSeekBalance: DeepSeekBalanceResponse? = nil,
-        deepSeekCredentialStore: any DeepSeekCredentialStore = KeychainDeepSeekCredentialStore()
+        seededOpenRouterBalance: OpenRouterBalanceResponse? = nil,
+        deepSeekCredentialStore: any DeepSeekCredentialStore = KeychainDeepSeekCredentialStore(),
+        openRouterCredentialStore: any OpenRouterCredentialStore = KeychainOpenRouterCredentialStore()
     ) {
         self.defaults = defaults
         self.deepSeekCredentialStore = deepSeekCredentialStore
+        self.openRouterCredentialStore = openRouterCredentialStore
         firedThresholds = defaults.dictionary(forKey: Self.firedKey) as? [String: Double] ?? [:]
         if let seeded {
             // Deterministic input for the offscreen harness and tests: no process
@@ -135,6 +147,10 @@ final class UsageMonitor {
             deepSeekBalance = seededDeepSeekBalance
             deepSeekBalanceFetchedAt = Date(timeIntervalSince1970: 1_787_261_100)
         }
+        if let seededOpenRouterBalance {
+            openRouterBalance = seededOpenRouterBalance
+            openRouterBalanceFetchedAt = Date(timeIntervalSince1970: 1_787_261_100)
+        }
     }
 
     /// Test hook: applies a snapshot and fires `onDataChange` like `refresh()`'s defer.
@@ -142,7 +158,8 @@ final class UsageMonitor {
         _ snapshot: UsageSnapshot,
         stats: StatsSnapshot? = nil,
         claudeStatus: ClaudeStatusSnapshot? = nil,
-        deepSeekBalance: DeepSeekBalanceResponse? = nil
+        deepSeekBalance: DeepSeekBalanceResponse? = nil,
+        openRouterBalance: OpenRouterBalanceResponse? = nil
     ) {
         self.snapshot = snapshot
         if let stats { statsSnapshot = stats }
@@ -150,6 +167,10 @@ final class UsageMonitor {
         if let deepSeekBalance {
             self.deepSeekBalance = deepSeekBalance
             deepSeekBalanceFetchedAt = Date(timeIntervalSince1970: 1_787_261_100)
+        }
+        if let openRouterBalance {
+            self.openRouterBalance = openRouterBalance
+            openRouterBalanceFetchedAt = Date(timeIntervalSince1970: 1_787_261_100)
         }
         lastError = nil
         lastRefresh = Date(timeIntervalSince1970: 1_787_261_100)
@@ -163,6 +184,14 @@ final class UsageMonitor {
         deepSeekBalance = nil
         deepSeekBalanceFetchedAt = nil
         deepSeekError = nil
+        onDataChange?()
+    }
+
+    /// Test hook: same contract as `simulateDeepSeekDisabled`, for OpenRouter.
+    package func simulateOpenRouterDisabled() {
+        openRouterBalance = nil
+        openRouterBalanceFetchedAt = nil
+        openRouterError = nil
         onDataChange?()
     }
 
@@ -197,14 +226,24 @@ final class UsageMonitor {
         let statsClient = StatsClient(executableOverride: settings.ompPath)
         let deepSeekEnabled = DeepSeekSettings.current.isEnabled
         let deepSeekKey = deepSeekEnabled ? deepSeekCredentialStore.loadAPIKey() : nil
-        // Cost estimates and the DeepSeek balance are both nice-to-haves on
-        // top of quota data — a failure or slow run there must never block
-        // or blank the quota lines above.
+        let openRouterEnabled = OpenRouterSettings.current.isEnabled
+        let openRouterKey = openRouterEnabled ? openRouterCredentialStore.loadAPIKey() : nil
+        // Cost estimates and the real-balance providers are all nice-to-haves
+        // on top of quota data — a failure or slow run there must never
+        // block or blank the quota lines above.
         async let statsFetch: StatsSnapshot? = try? statsClient.fetch()
         async let deepSeekFetch: Swift.Result<DeepSeekBalanceResponse, Error>? = {
             guard let deepSeekKey, !deepSeekKey.isEmpty else { return nil }
             do {
                 return .success(try await DeepSeekClient(apiKey: deepSeekKey).fetch())
+            } catch {
+                return .failure(error)
+            }
+        }()
+        async let openRouterFetch: Swift.Result<OpenRouterBalanceResponse, Error>? = {
+            guard let openRouterKey, !openRouterKey.isEmpty else { return nil }
+            do {
+                return .success(try await OpenRouterClient(apiKey: openRouterKey).fetch())
             } catch {
                 return .failure(error)
             }
@@ -231,6 +270,17 @@ final class UsageMonitor {
         deepSeekBalance = resolvedDeepSeek.balance
         deepSeekBalanceFetchedAt = resolvedDeepSeek.fetchedAt
         deepSeekError = resolvedDeepSeek.error
+
+        let resolvedOpenRouter = Self.resolveOpenRouterBalance(
+            enabled: openRouterEnabled,
+            result: await openRouterFetch,
+            previousBalance: openRouterBalance,
+            previousFetchedAt: openRouterBalanceFetchedAt,
+            now: Date()
+        )
+        openRouterBalance = resolvedOpenRouter.balance
+        openRouterBalanceFetchedAt = resolvedOpenRouter.fetchedAt
+        openRouterError = resolvedOpenRouter.error
 
         let installer = ClaudeStatusLineInstaller.resolved(settingsPath: ClaudeStatusLineSettings.current.settingsPath)
         claudeStatus = ClaudeStatusSnapshot.loadCached(from: installer.cacheURL)
@@ -270,6 +320,31 @@ final class UsageMonitor {
         case .failure(let error):
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             if case DeepSeekClientError.exitFailure(let code, _) = error, code == 401 || code == 403 {
+                return (nil, nil, message)
+            }
+            return (previousBalance, previousFetchedAt, message)
+        }
+    }
+
+    /// Mirrors `resolveDeepSeekBalance` — same disable/auth-failure/transient-
+    /// failure contract, for OpenRouter's credits endpoint.
+    nonisolated static func resolveOpenRouterBalance(
+        enabled: Bool,
+        result: Swift.Result<OpenRouterBalanceResponse, Error>?,
+        previousBalance: OpenRouterBalanceResponse?,
+        previousFetchedAt: Date?,
+        now: Date
+    ) -> (balance: OpenRouterBalanceResponse?, fetchedAt: Date?, error: String?) {
+        guard enabled else { return (nil, nil, nil) }
+        guard let result else {
+            return (nil, nil, OpenRouterClientError.notConfigured.errorDescription)
+        }
+        switch result {
+        case .success(let balance):
+            return (balance, now, nil)
+        case .failure(let error):
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            if case OpenRouterClientError.exitFailure(let code, _) = error, code == 401 || code == 403 {
                 return (nil, nil, message)
             }
             return (previousBalance, previousFetchedAt, message)

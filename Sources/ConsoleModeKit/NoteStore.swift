@@ -99,6 +99,17 @@ final class NoteStore: @unchecked Sendable {
         }
     }
 
+    /// Every note, oldest first — full export (Markdown/JSON backup), not
+    /// display. Unbounded on purpose: an export that silently truncates at
+    /// some limit would be a corrupted backup, not a smaller one.
+    func fetchAllForExport() throws -> [Note] {
+        try dbQueue.read { db in
+            try Note
+                .order(Column("created_at").asc, Column("id").asc)
+                .fetchAll(db)
+        }
+    }
+
     /// Record the tagger's verdict. `project` nil means "ran, no label" — `tagged_at`
     /// still gets set so the note is not retried on every launch.
     func setProject(id: Int64, project: String?, confidence: Double?, at date: Date = Date()) throws {
@@ -222,22 +233,54 @@ final class NoteStore: @unchecked Sendable {
     }
 
     func setRemindAt(id: Int64, date: Date?) throws {
-        let value: TimeInterval? = date.map { $0.timeIntervalSince1970 }
+        try dbQueue.write { db in
+            if let date {
+                try db.execute(
+                    sql: "UPDATE note SET remind_at = ? WHERE id = ?",
+                    arguments: [date.timeIntervalSince1970, id]
+                )
+            } else {
+                // Clearing the reminder also clears any recurrence — there is no
+                // such thing as a recurring reminder with no next fire date.
+                try db.execute(
+                    sql: "UPDATE note SET remind_at = NULL, recurrence_rule = NULL WHERE id = ?",
+                    arguments: [id]
+                )
+            }
+        }
+    }
+
+    /// Persists a one-shot or recurring reminder schedule: `remind_at` always
+    /// holds the next fire date; `recurrence_rule` is set only for recurring
+    /// schedules and drives `ReminderScheduler`'s recurring notification triggers.
+    func setReminderSchedule(id: Int64, schedule: ReminderSchedule) throws {
+        let remindAt: TimeInterval
+        let ruleJSON: String?
+        switch schedule {
+        case .once(let date):
+            remindAt = date.timeIntervalSince1970
+            ruleJSON = nil
+        case .recurring(let rule, let firstFireDate):
+            remindAt = firstFireDate.timeIntervalSince1970
+            ruleJSON = String(decoding: try JSONEncoder().encode(rule), as: UTF8.self)
+        }
         try dbQueue.write { db in
             try db.execute(
-                sql: "UPDATE note SET remind_at = ? WHERE id = ?",
-                arguments: [value, id]
+                sql: "UPDATE note SET remind_at = ?, recurrence_rule = ? WHERE id = ?",
+                arguments: [remindAt, ruleJSON, id]
             )
         }
     }
 
-    /// Notes with a future reminder, soonest first.
+    /// Notes with a future or recurring reminder, soonest first. A recurring
+    /// reminder is always "pending" even once its stored `remind_at` hint has
+    /// passed — `ReminderScheduler` recomputes the next fire date from the rule.
     func fetchPendingReminders(limit: Int = 500) throws -> [Note] {
         let now = Date().timeIntervalSince1970
         return try dbQueue.read { db in
             try Note
                 .filter(Column("remind_at") != nil)
-                .filter(Column("remind_at") > now)
+                .filter(sql: "(remind_at > ? OR recurrence_rule IS NOT NULL)", arguments: [now])
                 .filter(Column("completed_at") == nil)
                 .order(Column("remind_at").asc)
                 .limit(limit)
@@ -333,6 +376,11 @@ final class NoteStore: @unchecked Sendable {
                 table.add(column: "action_reviewed_at", .double)
             }
             try db.execute(sql: "CREATE INDEX note_actionable_idx ON note(actionable)")
+        }
+        migrator.registerMigration("v5_recurring_reminders") { db in
+            try db.alter(table: "note") { table in
+                table.add(column: "recurrence_rule", .text)
+            }
         }
         return migrator
     }

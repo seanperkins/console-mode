@@ -591,6 +591,74 @@ private let deepSeekSample = DeepSeekBalanceResponse(
     #expect(stats.costEstimateLines(excluding: []).isEmpty)
 }
 
+@Test func topModelsRanksByCostDescendingAndCapsAtLimit() {
+    let stats = StatsSnapshot(byModel: [
+        StatsModelEntry(model: "cheap", provider: "openrouter", totalCost: 0.5),
+        StatsModelEntry(model: "priciest", provider: "openrouter", totalCost: 9.0),
+        StatsModelEntry(model: "middle", provider: "openrouter", totalCost: 3.0),
+        StatsModelEntry(model: "other-provider", provider: "nous", totalCost: 99.0),
+    ])
+    let top = stats.topModels(for: "openrouter", limit: 2)
+    #expect(top.map(\.model) == ["priciest", "middle"])
+    #expect(top.map(\.cost) == [9.0, 3.0])
+}
+
+@Test func dailyCostTrendGroupsByTimestampChronologically() {
+    let stats = StatsSnapshot(
+        byModel: [],
+        costSeries: [
+            CostSeriesEntry(timestamp: 2, model: "a", provider: "openrouter", cost: 4.0),
+            CostSeriesEntry(timestamp: 1, model: "a", provider: "openrouter", cost: 1.0),
+            CostSeriesEntry(timestamp: 1, model: "b", provider: "openrouter", cost: 2.0),
+            CostSeriesEntry(timestamp: 1, model: "x", provider: "nous", cost: 50.0),
+        ]
+    )
+    // Day 1: model a + b summed (3.0); day 2: model a alone (4.0). Other
+    // providers never bleed into this provider's trend.
+    #expect(stats.dailyCostTrend(for: "openrouter") == [3.0, 4.0])
+}
+
+@Test func sparklineScalesToItsOwnPeakAndHandlesEdgeCases() {
+    #expect(StatsSnapshot.sparkline([]) == "")
+    #expect(StatsSnapshot.sparkline([5]) == "")
+    #expect(StatsSnapshot.sparkline([0, 0, 0]) == "")
+    let rising = StatsSnapshot.sparkline([0, 5, 10])
+    #expect(rising.count == 3)
+    #expect(rising.last == "█")
+    #expect(rising.first == "▁")
+}
+
+@Test func costEstimateLineDetailIncludesTopModelsAndTrend() {
+    let stats = StatsSnapshot(
+        byModel: [
+            StatsModelEntry(model: "deepseek-chat", provider: "deepseek", totalCost: 5.0),
+            StatsModelEntry(model: "deepseek-reasoner", provider: "deepseek", totalCost: 2.0),
+        ],
+        costSeries: [
+            CostSeriesEntry(timestamp: 1, model: "deepseek-chat", provider: "deepseek", cost: 3.0),
+            CostSeriesEntry(timestamp: 2, model: "deepseek-chat", provider: "deepseek", cost: 4.0),
+        ]
+    )
+    let line = try! #require(stats.costEstimateLines(excluding: []).first)
+    let detail = try! #require(line.amountDetail)
+    #expect(detail.contains("not a billed charge"))
+    #expect(detail.contains("deepseek-chat ($5.00)"))
+    #expect(detail.contains("deepseek-reasoner ($2.00)"))
+    #expect(detail.contains("trend"))
+}
+
+@Test func costEstimateLineDetailOmitsTrendWhenNoCostSeries() {
+    // Providers with no `costSeries` entries (e.g. an `omp stats --json`
+    // response predating that field) still get a clean detail line with no
+    // dangling "trend" section.
+    let stats = StatsSnapshot(byModel: [
+        StatsModelEntry(model: "solo-model", provider: "nous", totalCost: 1.0),
+    ])
+    let detail = try! #require(stats.costEstimateLines(excluding: []).first?.amountDetail)
+    #expect(!detail.contains("trend"))
+    #expect(detail.contains("solo-model ($1.00)"))
+}
+
 @MainActor
 @Test func monitorLinesAppendCostEstimatesAfterQuotaLines() {
     let monitor = UsageMonitor(

@@ -6,13 +6,21 @@ struct ClaudeStatusLineConfig: Sendable, Equatable {
     /// Empty means `~/.claude/settings.json`. Override for a non-default
     /// `CLAUDE_CONFIG_DIR`.
     var settingsPath: String
+    /// True once the user has toggled this on — independent of the live
+    /// `isInstalled` ground truth, which reflects whatever `settings.json`
+    /// currently says. The gap between the two is what lets Settings tell
+    /// "never turned on" apart from "was on, but something else (a hand
+    /// edit, another tool) has since taken over the statusline command" —
+    /// see `SettingsView.claudeStatusLineStatusText`.
+    var wasEverInstalled: Bool
 
-    static let standard = ClaudeStatusLineConfig(settingsPath: "")
+    static let standard = ClaudeStatusLineConfig(settingsPath: "", wasEverInstalled: false)
 }
 
 enum ClaudeStatusLineSettings {
     private enum Key {
         static let settingsPath = "claudeStatusLine.settingsPath"
+        static let wasEverInstalled = "claudeStatusLine.wasEverInstalled"
     }
 
     static var current: ClaudeStatusLineConfig {
@@ -22,10 +30,13 @@ enum ClaudeStatusLineSettings {
             if let path = defaults.string(forKey: Key.settingsPath) {
                 config.settingsPath = path
             }
+            config.wasEverInstalled = defaults.bool(forKey: Key.wasEverInstalled)
             return config
         }
         set {
-            UserDefaults.standard.set(newValue.settingsPath, forKey: Key.settingsPath)
+            let defaults = UserDefaults.standard
+            defaults.set(newValue.settingsPath, forKey: Key.settingsPath)
+            defaults.set(newValue.wasEverInstalled, forKey: Key.wasEverInstalled)
         }
     }
 }

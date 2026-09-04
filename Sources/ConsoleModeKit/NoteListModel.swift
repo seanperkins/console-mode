@@ -343,6 +343,23 @@ final class NoteListModel {
         }
     }
 
+    /// Fetches everything for a Markdown/JSON backup. Settings drives the
+    /// save panel and the actual file write via `NoteExporter`; this just
+    /// hands back the data and a status line.
+    func exportAllNotes() -> [Note] {
+        do {
+            let notes = try store.fetchAllForExport()
+            if notes.isEmpty {
+                statusMessage = "No notes to export."
+            }
+            return notes
+        } catch {
+            NSLog("Failed to fetch notes for export: \(error)")
+            statusMessage = "Could not read notes to export."
+            return []
+        }
+    }
+
     // MARK: - Project tagging
 
     /// Fire-and-forget so capture never waits on the model (~5s per call).
@@ -637,20 +654,20 @@ final class NoteListModel {
 
     private func setReminder(from argument: String) {
         guard !argument.isEmpty else {
-            statusMessage = "Usage: /remind tomorrow 9am"
+            statusMessage = "Usage: /remind tomorrow 9am (or every weekday 9am)"
             draft = ""
             return
         }
 
         let split = ReminderParser.splitArgument(argument)
-        guard case .success(let fireDate) = ReminderParser.parse(split.when) else {
+        guard case .success(let schedule) = ReminderParser.parseSchedule(split.when) else {
             statusMessage = "Could not parse \(split.when)."
             draft = ""
             return
         }
 
         if let id = editingNoteID {
-            applyReminder(to: id, at: fireDate)
+            applyReminderSchedule(to: id, schedule: schedule)
             draft = ""
             clearEditing()
             return
@@ -659,7 +676,7 @@ final class NoteListModel {
         if let body = split.body, !body.isEmpty {
             do {
                 guard let saved = try store.append(body), let id = saved.id else { return }
-                applyReminder(to: id, at: fireDate)
+                applyReminderSchedule(to: id, schedule: schedule)
                 draft = ""
                 exportCapturedNote(saved)
             } catch {
@@ -691,15 +708,20 @@ final class NoteListModel {
         clearEditing()
     }
 
-    private func applyReminder(to id: Int64, at date: Date) {
+    private func applyReminderSchedule(to id: Int64, schedule: ReminderSchedule) {
         do {
-            try store.setRemindAt(id: id, date: date)
+            try store.setReminderSchedule(id: id, schedule: schedule)
             ReminderScheduler.cancel(noteID: id)
             refreshNotes()
             if let note = try store.fetchNote(id: id) {
                 Task { await ReminderScheduler.schedule(note: note) }
             }
-            statusMessage = "Reminder set for \(ReminderParser.format(date))."
+            switch schedule {
+            case .once(let date):
+                statusMessage = "Reminder set for \(ReminderParser.format(date))."
+            case .recurring(let rule, _):
+                statusMessage = "Reminder set for \(ReminderParser.describeRecurrence(rule))."
+            }
         } catch {
             statusMessage = "Could not set that reminder."
         }

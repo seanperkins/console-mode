@@ -83,6 +83,24 @@ make test     # unit tests
 make bundle   # ConsoleMode.app only
 ```
 
+## Releases
+
+Tagged releases are built by CI: `git tag vX.Y.Z && git push --tags` triggers
+`.github/workflows/release.yml`, which builds `ConsoleMode.app`, signs it with
+a Developer ID certificate, and notarizes it before attaching the zip to a
+GitHub Release. A downloaded release opens with zero Gatekeeper warnings —
+unlike a local `make bundle`, which is ad-hoc signed (`codesign --sign -`)
+and needs `xattr -cr ConsoleMode.app` before Gatekeeper will let it launch.
+
+One-time GitHub secrets the maintainer configures before the workflow can run:
+
+- `CONSOLEMODE_MACOS_CERT_DEPLOY_KEY` — read-only deploy key for the cert vault repo
+- `CONSOLEMODE_MACOS_CERT_PASSWORD` — vault `.p12` passphrase
+- `CONSOLEMODE_MACOS_SIGNING_IDENTITY` — exact `Developer ID Application: ...` identity string
+- `ASC_KEY_ID` — App Store Connect API key id
+- `ASC_ISSUER_ID` — App Store Connect API issuer id
+- `ASC_KEY_CONTENT` — base64-encoded App Store Connect API `.p8` key
+
 ## Usage
 
 | Action | Result |

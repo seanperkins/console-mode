@@ -87,7 +87,7 @@ enum SlashCommand: String, CaseIterable, Equatable, Sendable {
         case .review: "step through to-do notes"
         case .next: "skip to next in review"
         case .copy: "copy selected note"
-        case .remind: "set a reminder"
+        case .remind: "set a reminder (also: every weekday 9am)"
         case .unremind: "clear the reminder"
         case .analyze: "classify notes with omp + Claude"
         case .actions: "show actionable notes only"
@@ -274,7 +274,7 @@ enum ConsoleInput: Equatable {
                 case .tag: return "/tag project-name"
                 case .find: return "/find search text"
                 case .project: return "/project name"
-                case .remind: return "/remind tomorrow 9am"
+                case .remind: return "/remind tomorrow 9am, or every weekday 9am"
                 case .analyze: return "/analyze 15"
                 default: return "/\(command.rawValue) …"
                 }

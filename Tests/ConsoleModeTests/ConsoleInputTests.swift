@@ -266,6 +266,38 @@ struct ConsoleCommandTests {
         }
     }
 
+    @Test func remindEveryWeekdayCreatesRecurringNote() throws {
+        let store = try NoteStore.inMemory()
+        let model = NoteListModel(store: store)
+
+        model.draft = "/remind every weekday 9am stretch"
+        model.commitDraft()
+
+        let saved = try store.fetchRecent(limit: 1).first!
+        #expect(saved.body == "stretch")
+        #expect(saved.recurrenceRule == .weekdays(hour: 9, minute: 0))
+        #expect(saved.remindAt != nil)
+        #expect(model.statusMessage?.contains("every weekday") == true)
+    }
+
+    @Test func unremindClearsRecurrenceRule() throws {
+        let store = try NoteStore.inMemory()
+        let note = try store.append("water plants")!
+        try store.setReminderSchedule(
+            id: note.id!,
+            schedule: .recurring(.daily(hour: 9, minute: 0), firstFireDate: Date().addingTimeInterval(3_600))
+        )
+        let model = NoteListModel(store: store)
+
+        model.navigateToOlderNote()
+        model.draft = "/unremind"
+        model.commitDraft()
+
+        let fetched = try store.fetchNote(id: note.id!)!
+        #expect(fetched.remindAt == nil)
+        #expect(fetched.recurrenceRule == nil)
+    }
+
     @Test func findCommandFiltersNotes() throws {
         let store = try NoteStore.inMemory()
         _ = try store.append("pay invoice")
