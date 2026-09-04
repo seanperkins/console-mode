@@ -44,6 +44,12 @@ extension ThemeTokens {
             // content, not survive being flattened to an opaque terminal color.
             builder.withSelectionBackground(accent.hexString(appearance: appearance))
             builder.withSelectionForeground(terminalBackground.hexString(appearance: appearance))
+            // Our fixed card height is essentially never an exact multiple of
+            // the cell grid — real Ghostty's own fix for this: without it,
+            // every leftover pixel collects at the bottom edge instead of
+            // being split across all four sides, which is what read as "not
+            // sitting flush at the bottom."
+            builder.withCustom("window-padding-balance", "true")
         }
     }
 }

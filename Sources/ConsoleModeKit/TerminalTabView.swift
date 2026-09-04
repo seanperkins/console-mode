@@ -39,6 +39,11 @@ struct TerminalTabView: View {
             // same content height Notes/Usage already share.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
+            // Every other tab's content insets 12pt from the card edge
+            // (UsageView's rows, the notes input bar, ...) — without this
+            // the terminal's own background painted corner to corner,
+            // sitting on top of the card's border instead of inside it.
+            .padding(.horizontal, 12)
             .onAppear {
                 let config = TerminalSettings.current
                 terminal.configuration = TerminalSurfaceOptions(
