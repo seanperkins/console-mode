@@ -38,7 +38,13 @@ enum PanelGeometry {
         maxHeight: CGFloat
     ) -> (height: CGFloat, visibleRows: Int) {
         guard suggestionCount > 0, maxHeight > 0 else { return (0, 0) }
-        let maxRowsByHeight = Int(floor((maxHeight - suggestionPadding) / suggestionRowHeight))
+        // Clamp before the `Int` conversion: `maxHeight` defaults to
+        // `.greatestFiniteMagnitude` for an "uncapped" caller, and converting
+        // that huge a `Double` straight to `Int` traps (overflows `Int.max`).
+        // Nothing above `suggestionMaxVisibleRows` changes the result below,
+        // so clamping the row count first is exact, not an approximation.
+        let rawRows = (maxHeight - suggestionPadding) / suggestionRowHeight
+        let maxRowsByHeight = Int(floor(min(rawRows, Double(suggestionMaxVisibleRows))))
         let visibleRows = min(suggestionCount, suggestionMaxVisibleRows, max(0, maxRowsByHeight))
         guard visibleRows > 0 else { return (0, 0) }
         let height = CGFloat(visibleRows) * suggestionRowHeight + suggestionPadding
