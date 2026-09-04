@@ -17,7 +17,14 @@ import SwiftUI
 /// only the render loop stops.
 struct TerminalTabView: View {
     @Bindable var shell: ConsoleShell
-    @StateObject private var terminal = TerminalViewState()
+    @StateObject private var terminal: TerminalViewState
+
+    init(shell: ConsoleShell) {
+        self.shell = shell
+        // Seeded with the live theme at construction (first activation), not
+        // `.default` — `onChange` below keeps it current after that.
+        _terminal = StateObject(wrappedValue: TerminalViewState(theme: shell.theme.terminalTheme()))
+    }
 
     private var isVisible: Bool {
         shell.activeTab == .terminal && shell.isPanelVisible
@@ -25,6 +32,13 @@ struct TerminalTabView: View {
 
     var body: some View {
         TerminalSurfaceView(context: terminal)
+            // The underlying AppKit view otherwise reports its own intrinsic
+            // grid size (its idea of a default terminal, not this card's
+            // fixed content height) and paints past it — this is what pins
+            // it to exactly the space `ConsoleView`'s ZStack gives it, the
+            // same content height Notes/Usage already share.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
             .onAppear {
                 let config = TerminalSettings.current
                 terminal.configuration = TerminalSurfaceOptions(
@@ -33,9 +47,22 @@ struct TerminalTabView: View {
                     command: config.shellPath.isEmpty ? nil : config.shellPath
                 )
                 terminal.isSurfaceVisible = isVisible
+                if isVisible {
+                    terminal.requestFocus()
+                }
             }
             .onChange(of: isVisible) { _, visible in
                 terminal.isSurfaceVisible = visible
+                if visible {
+                    // Deterministic, not the best-effort SwiftUI FocusState
+                    // bridge: ⌃3/click must land the cursor in the terminal
+                    // on the same keystroke that switches to it, not on a
+                    // second one.
+                    terminal.requestFocus()
+                }
+            }
+            .onChange(of: shell.themeID) { _, _ in
+                terminal.setTheme(shell.theme.terminalTheme())
             }
     }
 }
