@@ -57,6 +57,54 @@ struct PanelHarnessTests {
         )
     }
 
+    // MARK: - Terminal tab passthrough (terminalActive: true)
+    //
+    // Once a terminal tab holds a live PTY, this binding must get out of the
+    // shell's way: everything but the explicit tab-cycle chord has to reach
+    // the PTY, because a shell/editor inside it has its own opinions about
+    // Esc, ⌃R, and digit chords.
+
+    @Test func terminalActiveStillClaimsControlTab() {
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.controlTab(), terminalActive: true) == .cycleTab)
+    }
+
+    @Test func terminalActiveLetsEscapeReachTheShell() {
+        // e.g. leaving vim's insert mode must not dismiss the panel.
+        let event = KeyDriver.event(characters: "\u{1b}", keyCode: 53, flags: [])
+        #expect(ConsoleKeyBinding.action(for: event, terminalActive: true) == nil)
+    }
+
+    @Test func terminalActiveLetsControlDigitsReachTheShell() {
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "1", keyCode: 18, flags: .control), terminalActive: true)
+                == nil
+        )
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "2", keyCode: 19, flags: .control), terminalActive: true)
+                == nil
+        )
+    }
+
+    @Test func terminalActiveLetsReverseSearchReachTheShell() {
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "r", keyCode: 15, flags: .control), terminalActive: true)
+                == nil
+        )
+        #expect(ConsoleKeyBinding.action(for: KeyDriver.command("r", keyCode: 15), terminalActive: true) == nil)
+    }
+
+    @Test func terminalActiveDoesNotChangeNonTerminalBindings() {
+        // Sanity: the default (Notes/Usage) path is untouched by the new parameter.
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "1", keyCode: 18, flags: .control))
+                == .selectTab(.notes)
+        )
+        #expect(
+            ConsoleKeyBinding.action(for: KeyDriver.event(characters: "\u{1b}", keyCode: 53, flags: []))
+                == .dismiss
+        )
+    }
+
     // MARK: - Things that must not be claimed
 
     @Test func summonChordIsNotMistakenForATabSwitch() {

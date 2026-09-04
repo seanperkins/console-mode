@@ -24,11 +24,18 @@ enum ConsoleKeyBinding {
     ///
     /// ⌘` is deliberately absent — macOS binds it to "Move focus to next window
     /// in application", which is enabled by default.
-    static func action(for event: NSEvent) -> ConsoleKeyAction? {
+    /// - Parameter terminalActive: `true` once a terminal tab holds a live
+    ///   PTY session and is the active tab. While it is, this binding claims
+    ///   only the explicit tab-cycle chord (⌃Tab) and lets every other
+    ///   Control/Command chord — Esc for vim's normal mode, ⌃R for
+    ///   reverse-i-search, ⌃1/⌃2 as a shell tool might bind them — reach the
+    ///   PTY instead of being swallowed here. Defaults to `false` so every
+    ///   existing call site (and the Notes/Usage tabs) is unaffected.
+    static func action(for event: NSEvent, terminalActive: Bool = false) -> ConsoleKeyAction? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         if event.keyCode == escapeKeyCode, flags.isEmpty {
-            return .dismiss
+            return terminalActive ? nil : .dismiss
         }
 
         let hasControl = flags.contains(.control)
@@ -41,6 +48,8 @@ enum ConsoleKeyBinding {
         if event.keyCode == tabKeyCode, hasControl {
             return .cycleTab
         }
+
+        guard !terminalActive else { return nil }
 
         switch event.charactersIgnoringModifiers?.lowercased() {
         case "1": return .selectTab(.notes)
