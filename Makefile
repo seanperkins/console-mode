@@ -16,7 +16,11 @@ bundle: build
 	codesign --force --sign - "$(BUNDLE)"
 
 run: bundle
+	-pkill -x $(APP_NAME) 2>/dev/null || true
 	open "$(BUNDLE)"
+	@sleep 0.5
+	@pid=$$(pgrep -x $(APP_NAME)); \
+	if [ -n "$$pid" ]; then echo "ConsoleMode PID $$pid"; else echo "ConsoleMode did not start" >&2; exit 1; fi
 
 test:
 	swift test

@@ -56,6 +56,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         shell = ConsoleShell(notes: model, usage: usage)
 
         panel = ConsolePanel(shell: shell)
+        usage.onDataChange = { [weak self] in
+            guard let self else { return }
+            self.shell.syncCollapsedCapacity()
+            self.panel.updateLayout(on: ScreenLocator.screenForMouse(), animated: self.panel.isPanelVisible)
+        }
         panel.prewarm(on: ScreenLocator.screenForMouse())
 
         installStatusItem()
@@ -65,6 +70,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             usage.start()
             observeSeverityForStatusItem()
         }
+
+        Task { await ReminderScheduler.rescheduleAll(store: store) }
     }
 
     // MARK: - Usage alerts
@@ -210,7 +217,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         if settingsWindow == nil {
-            let contentSize = NSSize(width: 520, height: 620)
+            let contentSize = NSSize(width: 520, height: 700)
             let hostingView = NSHostingView(rootView: SettingsView(shell: shell))
             hostingView.frame = NSRect(origin: .zero, size: contentSize)
             hostingView.autoresizingMask = [.width, .height]

@@ -56,12 +56,18 @@ final class ConsolePanel: NSPanel {
         applyFrame(on: screen, animated: true, appearing: true)
         makeKeyAndOrderFront(nil)
         isPanelVisible = true
-        // Only the notes tab has a text field to focus.
-        if shell.activeTab == .notes {
-            shell.notes.requestInputFocus()
-        }
+        focusNotesInput()
     }
 
+    /// The capture field may not exist until the panel finishes appearing.
+    private func focusNotesInput() {
+        guard shell.activeTab == .notes else { return }
+        shell.notes.requestInputFocus()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.isPanelVisible, self.shell.activeTab == .notes else { return }
+            self.shell.notes.requestInputFocus()
+        }
+    }
 
     func hide() {
         guard isPanelVisible else { return }
@@ -73,8 +79,16 @@ final class ConsolePanel: NSPanel {
     }
 
     func refreshFrame(on screen: NSScreen, animated: Bool) {
-        guard isPanelVisible else { return }
+        updateLayout(on: screen, animated: animated)
+    }
+
+    /// Keeps the prewarmed frame current while hidden, and resizes the live panel when visible.
+    func updateLayout(on screen: NSScreen, animated: Bool) {
         let target = targetFrame(on: screen)
+        guard isPanelVisible else {
+            setFrame(target, display: false)
+            return
+        }
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.25
@@ -93,7 +107,8 @@ final class ConsolePanel: NSPanel {
             tab: shell.activeTab,
             expanded: shell.notes.expanded,
             visibleRowCount: shell.visibleRowCount,
-            lineCount: shell.usageLineCount
+            lineCount: shell.usageLineCount,
+            noteDetailExtraHeight: shell.notesDetailExtraHeight
         )
     }
 
@@ -141,7 +156,9 @@ struct ConsoleRootView: View {
     var body: some View {
         ConsoleView(shell: shell)
             .onChange(of: shell.notes.expanded) { _, _ in onLayoutChange() }
+            .onChange(of: shell.notes.editingNoteID) { _, _ in onLayoutChange() }
             .onChange(of: shell.notes.notes.count) { _, _ in onLayoutChange() }
+            .onChange(of: shell.notes.filterLabel) { _, _ in onLayoutChange() }
             // Tabs and provider count both change the card height.
             .onChange(of: shell.activeTab) { _, _ in onLayoutChange() }
             .onChange(of: shell.usageLineCount) { _, _ in
@@ -150,5 +167,10 @@ struct ConsoleRootView: View {
                 shell.syncCollapsedCapacity()
                 onLayoutChange()
             }
+            .onChange(of: shell.usage.lastRefresh) { _, _ in
+                shell.syncCollapsedCapacity()
+                onLayoutChange()
+            }
+            .onChange(of: shell.usage.lastError) { _, _ in onLayoutChange() }
     }
 }

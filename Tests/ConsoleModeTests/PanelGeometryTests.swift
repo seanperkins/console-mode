@@ -72,6 +72,30 @@ private let baseline = PanelGeometry.baselineHeight(lineCount: lines)
     #expect(height == 500)
 }
 
+@Test func usageTabHeightGrowsWhenLineCountIncreases() {
+    let oneLineUsage = PanelGeometry.usageHeight(lineCount: 1)
+    let eightLineUsage = PanelGeometry.usageHeight(lineCount: 8)
+    #expect(eightLineUsage > oneLineUsage)
+    #expect(eightLineUsage - oneLineUsage == 7 * PanelGeometry.usageRowHeight)
+
+    let oneTab = PanelGeometry.panelHeight(
+        tab: .usage,
+        expanded: false,
+        visibleRowCount: 1,
+        lineCount: 1,
+        screenVisibleHeight: 2_000
+    )
+    let eightTab = PanelGeometry.panelHeight(
+        tab: .usage,
+        expanded: false,
+        visibleRowCount: 1,
+        lineCount: 8,
+        screenVisibleHeight: 2_000
+    )
+    #expect(eightTab > oneTab)
+    #expect(eightTab == PanelGeometry.usageHeight(lineCount: 8))
+}
+
 @Test func usageHeightGrowsPerProvider() {
     let three = PanelGeometry.usageHeight(lineCount: 3)
     let four = PanelGeometry.usageHeight(lineCount: 4)
@@ -92,7 +116,6 @@ private let baseline = PanelGeometry.baselineHeight(lineCount: lines)
     #expect(expanded == baseline)
 }
 
-
 @Test func usageTabAlsoClampsToHalfScreen() {
     let height = PanelGeometry.panelHeight(
         tab: .usage,
@@ -102,6 +125,50 @@ private let baseline = PanelGeometry.baselineHeight(lineCount: lines)
         screenVisibleHeight: 800
     )
     #expect(height == 400)
+}
+
+@Test func notesTabIgnoresSlashSuggestionsForPanelHeight() {
+    let baselineNotes = PanelGeometry.panelHeight(
+        tab: .notes,
+        expanded: false,
+        visibleRowCount: 3,
+        lineCount: 1,
+        screenVisibleHeight: 2_000
+    )
+    let extra = PanelGeometry.commandSuggestionExtraHeight(
+        suggestionCount: ConsoleInput.commandSuggestions(for: "/").count
+    )
+    #expect(extra > 0)
+
+    let withPalette = PanelGeometry.panelHeight(
+        tab: .notes,
+        expanded: false,
+        visibleRowCount: 3,
+        lineCount: 1,
+        screenVisibleHeight: 2_000
+    )
+    #expect(withPalette == baselineNotes)
+}
+
+@Test func commandSuggestionHeightIsCappedByAvailableSpace() {
+    let count = ConsoleInput.commandSuggestions(for: "/").count
+    let uncapped = PanelGeometry.commandSuggestionExtraHeight(suggestionCount: count)
+    #expect(uncapped > 0)
+
+    let tight = PanelGeometry.commandSuggestionOverlayMaxHeight(visibleRowCount: 1)
+    let capped = PanelGeometry.commandSuggestionExtraHeight(
+        suggestionCount: count,
+        maxHeight: tight
+    )
+    #expect(capped <= tight)
+    #expect(capped < uncapped)
+
+    let layout = PanelGeometry.commandSuggestionLayout(
+        suggestionCount: count,
+        maxHeight: tight
+    )
+    #expect(layout.visibleRows >= 1)
+    #expect(layout.height == capped)
 }
 
 @Test func frameCentersHorizontallyAndStaysFlush() {

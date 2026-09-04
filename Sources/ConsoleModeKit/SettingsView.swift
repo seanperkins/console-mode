@@ -8,6 +8,14 @@ struct SettingsView: View {
     @State private var launchAtLoginError: String?
     @State private var config = TaggerSettings.current
     @State private var usage = UsageSettings.current
+    @State private var obsidian = ObsidianSettings.current
+    @State private var actionReview = ActionReviewSettings.current
+    @State private var claudeStatusLine = ClaudeStatusLineSettings.current
+    @State private var claudeStatusLineError: String?
+    @State private var deepSeek = DeepSeekSettings.current
+    @State private var deepSeekAPIKey: String = ""
+    @State private var deepSeekKeychainError: String?
+    private let deepSeekCredentialStore: any DeepSeekCredentialStore = KeychainDeepSeekCredentialStore()
     @State private var isConfirmingClearAll = false
     @State private var pendingDeleteCount = 0
 
@@ -28,14 +36,21 @@ struct SettingsView: View {
                 shortcutSection
                 appearanceSection
                 usageSection
+                claudeStatusLineSection
+                deepSeekSection
                 startupSection
                 taggingSection
+                actionReviewSection
+                obsidianSection
                 storageSection
             }
             .padding(24)
             .frame(width: 520, alignment: .topLeading)
         }
-        .frame(width: 520, height: 620)
+        .frame(width: 520, height: 700)
+        .onAppear {
+            deepSeekAPIKey = deepSeekCredentialStore.loadAPIKey() ?? ""
+        }
     }
 
     // MARK: - Appearance
@@ -142,6 +157,128 @@ struct SettingsView: View {
         return "Using \(detected)" + (providers > 0 ? " · \(providers) providers" : "")
     }
 
+    // MARK: - Claude Code statusline
+
+    private var claudeStatusLineSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Claude Code usage")
+                .font(.headline)
+
+            Toggle("Show Claude Code's rate limits and cost estimate", isOn: claudeStatusLineInstalledBinding)
+
+            TextField(
+                "settings.json path (blank = ~/.claude/settings.json)",
+                text: $claudeStatusLine.settingsPath
+            )
+            .textFieldStyle(.roundedBorder)
+
+            Text(claudeStatusLineStatusText)
+                .font(.caption)
+                .foregroundStyle(claudeStatusLineError == nil ? Color.secondary : Color.red)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(
+                "Installs a tiny wrapper as Claude Code's statusLine command so this app can read the " +
+                    "account-wide rate limits and Claude's own cost estimate it already reports there — no " +
+                    "credentials read, nothing scraped. If you already have a statusline (cship, a custom " +
+                    "script, ...), it keeps working exactly as before; the wrapper forwards to it unchanged. " +
+                    "If you don't have one yet, this becomes your only statusline command, which replaces " +
+                    "Claude Code's built-in footer hints with nothing visible — quota data is still captured " +
+                    "either way. When a fresh reading is available it replaces (not duplicates) the Anthropic " +
+                    "row from omp usage."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: claudeStatusLine) { _, updated in
+            ClaudeStatusLineSettings.current = updated
+        }
+    }
+
+    private var claudeStatusLineInstaller: ClaudeStatusLineInstaller {
+        .resolved(settingsPath: claudeStatusLine.settingsPath)
+    }
+
+    private var claudeStatusLineInstalledBinding: Binding<Bool> {
+        Binding(
+            get: { claudeStatusLineInstaller.isInstalled },
+            set: { newValue in
+                claudeStatusLineError = nil
+                do {
+                    if newValue {
+                        try claudeStatusLineInstaller.install()
+                    } else {
+                        try claudeStatusLineInstaller.uninstall()
+                    }
+                } catch {
+                    claudeStatusLineError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
+            }
+        )
+    }
+
+    private var claudeStatusLineStatusText: String {
+        if let claudeStatusLineError { return claudeStatusLineError }
+        return claudeStatusLineInstaller.isInstalled
+            ? "Installed. Claude Code writes a fresh reading on its next turn."
+            : "Not installed."
+    }
+
+    // MARK: - DeepSeek balance
+
+    private var deepSeekSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("DeepSeek balance")
+                .font(.headline)
+
+            Toggle("Show DeepSeek's real account balance", isOn: $deepSeek.isEnabled)
+
+            SecureField("API key (from platform.deepseek.com)", text: $deepSeekAPIKey)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!deepSeek.isEnabled)
+                .onChange(of: deepSeekAPIKey) { _, updated in
+                    do {
+                        try deepSeekCredentialStore.saveAPIKey(updated)
+                        deepSeekKeychainError = nil
+                    } catch {
+                        deepSeekKeychainError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    }
+                }
+
+            Text(deepSeekStatusText)
+                .font(.caption)
+                .foregroundStyle(deepSeekStatusIsError ? Color.red : Color.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(
+                "Reads the account's real remaining balance directly from DeepSeek's own " +
+                    "`GET /user/balance` endpoint — the actual dollar figure you'd pay, not the " +
+                    "catalog-priced token estimate `omp stats` falls back to for providers " +
+                    "`omp usage` doesn't track. When enabled this replaces (not duplicates) the " +
+                    "estimate row for DeepSeek. The key is stored in the Keychain, never in " +
+                    "app settings, and never leaves this request."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: deepSeek) { _, updated in
+            DeepSeekSettings.current = updated
+        }
+    }
+
+    private var deepSeekStatusIsError: Bool {
+        shell.usage.deepSeekError != nil
+    }
+
+    private var deepSeekStatusText: String {
+        if let error = shell.usage.deepSeekError { return error }
+        guard deepSeek.isEnabled else { return "Off." }
+        guard let fetchedAt = shell.usage.deepSeekBalanceFetchedAt else { return "Not fetched yet." }
+        return "Balance as of " + UsageView.clock(fetchedAt)
+    }
+
     private var shortcutSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Shortcut")
@@ -217,6 +354,95 @@ struct SettingsView: View {
         }
         .onChange(of: config) { _, updated in
             TaggerSettings.current = updated
+        }
+    }
+
+
+    private var actionReviewSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Action review")
+                .font(.headline)
+
+            Toggle("Classify notes with omp + Claude", isOn: $actionReview.isEnabled)
+
+            LabeledContent("Model") {
+                TextField("claude-opus-5", text: $actionReview.model)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .disabled(!actionReview.isEnabled)
+
+            HStack {
+                Text("Batch size")
+                Stepper(value: $actionReview.batchSize, in: 1...50) {
+                    Text("\(actionReview.batchSize) notes")
+                        .monospacedDigit()
+                }
+                .fixedSize()
+            }
+            .disabled(!actionReview.isEnabled)
+
+            TextField("omp path (blank = use LLM usage path)", text: $actionReview.ompPath)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!actionReview.isEnabled)
+
+            HStack(spacing: 10) {
+                Button("Analyze pending notes") {
+                    ActionReviewSettings.current = actionReview
+                    model.backfillActionReview()
+                }
+                .disabled(!actionReview.isEnabled || model.isAnalyzing)
+
+                if model.isAnalyzing {
+                    ProgressView().controlSize(.small)
+                }
+
+                if let status = model.analyzeStatus {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text(
+                "Use /analyze in the console to send notes to Claude via omp. Actionable notes show a bolt and a short next-step summary."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: actionReview) { _, updated in
+            ActionReviewSettings.current = updated
+        }
+    }
+
+    // MARK: - Obsidian
+
+    private var obsidianSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Obsidian export")
+                .font(.headline)
+
+            Toggle("Append new notes to a daily note", isOn: $obsidian.isEnabled)
+
+            LabeledContent("Vault folder") {
+                TextField("~/Obsidian/MyVault", text: $obsidian.vaultPath)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .disabled(!obsidian.isEnabled)
+
+            LabeledContent("Daily notes folder") {
+                TextField("Daily (optional)", text: $obsidian.dailyFolder)
+                    .textFieldStyle(.roundedBorder)
+            }
+            .disabled(!obsidian.isEnabled)
+
+            Text(
+                "Each captured note appends a checkbox line to yyyy-MM-dd.md with the time, body, and project tag."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: obsidian) { _, updated in
+            ObsidianSettings.current = updated
         }
     }
 

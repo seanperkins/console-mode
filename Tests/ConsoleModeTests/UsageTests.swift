@@ -76,6 +76,241 @@ private func snapshot(_ limits: [(provider: String, id: String, remaining: Doubl
     #expect(limit.remainingFraction == 0)
 }
 
+@Test func usdMeterExposesCostFigures() throws {
+    let json = """
+    {"generatedAt":1,"reports":[{"provider":"cursor","fetchedAt":1,"limits":[
+      {"id":"cursor:usd:individual-api","label":"Other Models",
+       "window":{"id":"monthly","label":"Monthly"},
+       "amount":{"used":6.5,"limit":20,"remaining":13.5,"usedFraction":0.325,"remainingFraction":0.675,"unit":"usd"},
+       "status":"ok"}]}]}
+    """
+    let limit = try #require(try UsageClient.decode(Data(json.utf8)).reports.first?.limits.first)
+    #expect(limit.costUsed == 6.5)
+    #expect(limit.costLimit == 20)
+}
+
+@Test func uncappedUsdMeterHasNoCostLimit() throws {
+    // No `limit` or `remaining` sent: derive nothing rather than a fake cap.
+    let json = """
+    {"generatedAt":1,"reports":[{"provider":"openrouter","fetchedAt":1,"limits":[
+      {"id":"openrouter:usd:overage","label":"Overage",
+       "window":{"id":"monthly","label":"Monthly"},
+       "amount":{"used":4.2,"unit":"usd"},"status":"ok"}]}]}
+    """
+    let limit = try #require(try UsageClient.decode(Data(json.utf8)).reports.first?.limits.first)
+    #expect(limit.costUsed == 4.2)
+    #expect(limit.costLimit == nil)
+}
+
+@Test func percentMeterHasNoCostFigures() throws {
+    // Cursor's included-quota meter is unit "percent", not "usd": it must not
+    // masquerade as a dollar figure even though its id contains "usd".
+    let json = """
+    {"generatedAt":1,"reports":[{"provider":"cursor","fetchedAt":1,"limits":[
+      {"id":"cursor:usd:individual-auto","label":"Cursor Models",
+       "window":{"id":"monthly","label":"Monthly"},
+       "amount":{"used":49.4,"usedFraction":0.494,"unit":"percent"},"status":"ok"}]}]}
+    """
+    let limit = try #require(try UsageClient.decode(Data(json.utf8)).reports.first?.limits.first)
+    #expect(limit.costUsed == nil)
+    #expect(limit.costLimit == nil)
+}
+
+@Test func allLinesCarryCostFiguresForUsdMeters() throws {
+    let snap = UsageSnapshot(generatedAt: 1, reports: [
+        UsageReport(provider: "cursor", fetchedAt: 1, limits: [
+            UsageLimit(
+                id: "cursor:usd:individual-api",
+                label: "Other Models",
+                window: nil,
+                amount: UsageAmount(used: 6.5, limit: 20, remaining: 13.5, unit: "usd"),
+                status: "ok"
+            )
+        ], metadata: nil)
+    ])
+    let line = try #require(snap.allLines.first)
+    #expect(line.costUsed == 6.5)
+    #expect(line.costLimit == 20)
+}
+
+@Test func balanceOnlyMeterExposesCostRemainingNotCostUsed() throws {
+    let limit = UsageLimit(
+        id: "deepseek:balance",
+        label: "Account balance",
+        window: nil,
+        amount: UsageAmount(used: nil, limit: nil, remaining: 12.34, unit: "usd"),
+        status: "ok"
+    )
+    #expect(limit.costUsed == nil)
+    #expect(limit.costLimit == nil)
+    #expect(limit.costRemaining == UsageMoneyAmount(value: 12.34, currencyCode: "usd"))
+}
+
+@Test func nonUsdBalanceKeepsItsCurrencyCode() throws {
+    let limit = UsageLimit(
+        id: "deepseek:balance",
+        label: "Account balance",
+        window: nil,
+        amount: UsageAmount(used: nil, limit: nil, remaining: 110, unit: "cny"),
+        status: "ok"
+    )
+    #expect(limit.costRemaining?.currencyCode == "cny")
+}
+
+@Test func decodesDeepSeekBalancePayloadPreferringUsd() throws {
+    let json = """
+    {"is_available":true,"balance_infos":[
+      {"currency":"CNY","total_balance":"110.00","granted_balance":"10.00","topped_up_balance":"100.00"},
+      {"currency":"USD","total_balance":"15.50","granted_balance":"1.00","topped_up_balance":"14.50"}
+    ]}
+    """
+    let decoded = try JSONDecoder().decode(DeepSeekBalanceResponse.self, from: Data(json.utf8))
+    let report = try #require(decoded.asUsageReport(fetchedAt: 1))
+    #expect(report.provider == "deepseek")
+    let limit = try #require(report.limits.first)
+    #expect(limit.costRemaining == UsageMoneyAmount(value: 15.5, currencyCode: "usd"))
+    #expect(limit.isExhausted == false)
+}
+
+@Test func deepSeekBalanceFallsBackToOnlyCurrencyWhenNoUsd() throws {
+    let json = """
+    {"is_available":false,"balance_infos":[
+      {"currency":"CNY","total_balance":"0.00","granted_balance":"0.00","topped_up_balance":"0.00"}
+    ]}
+    """
+    let decoded = try JSONDecoder().decode(DeepSeekBalanceResponse.self, from: Data(json.utf8))
+    let report = try #require(decoded.asUsageReport(fetchedAt: 1))
+    let limit = try #require(report.limits.first)
+    #expect(limit.costRemaining == UsageMoneyAmount(value: 0, currencyCode: "cny"))
+    // `is_available == false` is the only signal this endpoint gives about
+    // running out — no known cap means no fraction, so it must surface as
+    // exhausted status rather than silently reading as healthy.
+    #expect(limit.isExhausted)
+}
+
+@MainActor
+@Test func effectiveSnapshotMergesDeepSeekBalanceReplacingAnyOmpUsageEntry() {
+    let ompSnapshot = UsageSnapshot(generatedAt: 0, reports: [
+        UsageReport(provider: "cursor", fetchedAt: 0, limits: [
+            UsageLimit(id: "cursor:api", label: "Monthly", window: nil,
+                       amount: UsageAmount(used: 0, limit: 20, remaining: 20, usedFraction: 0, remainingFraction: 1, unit: "usd"),
+                       status: "ok"),
+        ], metadata: nil),
+    ])
+    let balance = DeepSeekBalanceResponse(
+        isAvailable: true,
+        balanceInfos: [.init(currency: "USD", totalBalance: "8.75", grantedBalance: "0", toppedUpBalance: "8.75")]
+    )
+    let monitor = UsageMonitor(
+        defaults: UserDefaults(suiteName: "monitor-deepseek-merge-test")!,
+        seeded: ompSnapshot,
+        seededDeepSeekBalance: balance
+    )
+
+    let effective = try! #require(monitor.effectiveSnapshot)
+    #expect(effective.reports.contains { $0.provider == "deepseek" })
+    #expect(effective.reports.contains { $0.provider == "cursor" })
+    #expect(effective.trackedProviders.contains("deepseek"))
+
+    // Never doubles up as a stats-catalog estimate row once the real balance is in.
+    let costLines = StatsSnapshot(byModel: [
+        StatsModelEntry(model: "deepseek-chat", provider: "deepseek", totalCost: 3.0),
+    ]).costEstimateLines(excluding: effective.trackedProviders)
+    #expect(costLines.isEmpty)
+}
+
+// MARK: - DeepSeek balance resolution (pure, no network/Keychain)
+
+private let deepSeekSample = DeepSeekBalanceResponse(
+    isAvailable: true,
+    balanceInfos: [.init(currency: "USD", totalBalance: "8.75", grantedBalance: "0", toppedUpBalance: "8.75")]
+)
+
+@Test func resolveDeepSeekBalanceDisabledAlwaysClearsRegardlessOfPreviousState() {
+    let resolved = UsageMonitor.resolveDeepSeekBalance(
+        enabled: false,
+        result: .success(deepSeekSample),
+        previousBalance: deepSeekSample,
+        previousFetchedAt: Date(),
+        now: Date()
+    )
+    #expect(resolved.balance == nil)
+    #expect(resolved.fetchedAt == nil)
+    #expect(resolved.error == nil)
+}
+
+@Test func resolveDeepSeekBalanceSuccessStampsTheRealFetchTime() {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let resolved = UsageMonitor.resolveDeepSeekBalance(
+        enabled: true,
+        result: .success(deepSeekSample),
+        previousBalance: nil,
+        previousFetchedAt: nil,
+        now: now
+    )
+    #expect(resolved.balance == deepSeekSample)
+    #expect(resolved.fetchedAt == now)
+    #expect(resolved.error == nil)
+}
+
+@Test func resolveDeepSeekBalanceAuthFailureClearsEvenAPreviousGoodReading() {
+    let resolved = UsageMonitor.resolveDeepSeekBalance(
+        enabled: true,
+        result: .failure(DeepSeekClientError.exitFailure(code: 401, message: "invalid key")),
+        previousBalance: deepSeekSample,
+        previousFetchedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        now: Date()
+    )
+    #expect(resolved.balance == nil)
+    #expect(resolved.fetchedAt == nil)
+    #expect(resolved.error != nil)
+}
+
+@Test func resolveDeepSeekBalanceTransientFailureKeepsTheLastGoodReading() {
+    let staleTimestamp = Date(timeIntervalSince1970: 1_700_000_000)
+    let resolved = UsageMonitor.resolveDeepSeekBalance(
+        enabled: true,
+        result: .failure(DeepSeekClientError.requestFailed("timed out")),
+        previousBalance: deepSeekSample,
+        previousFetchedAt: staleTimestamp,
+        now: Date()
+    )
+    #expect(resolved.balance == deepSeekSample)
+    // The old fetch time is preserved, never relabeled as fresh.
+    #expect(resolved.fetchedAt == staleTimestamp)
+    #expect(resolved.error != nil)
+}
+
+@Test func resolveDeepSeekBalanceEnabledWithNoResultReportsNotConfigured() {
+    let resolved = UsageMonitor.resolveDeepSeekBalance(
+        enabled: true,
+        result: nil,
+        previousBalance: nil,
+        previousFetchedAt: nil,
+        now: Date()
+    )
+    #expect(resolved.balance == nil)
+    #expect(resolved.error == DeepSeekClientError.notConfigured.errorDescription)
+}
+
+@MainActor
+@Test func disablingDeepSeekAfterASeededBalanceClearsTheMergedRow() {
+    let monitor = UsageMonitor(
+        defaults: UserDefaults(suiteName: "monitor-deepseek-disable-test")!,
+        seeded: snapshot([("cursor", "c:api", 0.5, nil, "ok")]),
+        seededDeepSeekBalance: deepSeekSample
+    )
+    #expect(monitor.effectiveSnapshot?.reports.contains { $0.provider == "deepseek" } == true)
+
+    monitor.simulateDeepSeekDisabled()
+
+    #expect(monitor.deepSeekBalance == nil)
+    #expect(monitor.deepSeekBalanceFetchedAt == nil)
+    #expect(monitor.effectiveSnapshot?.reports.contains { $0.provider == "deepseek" } == false)
+    // The other provider's row is untouched by the clear.
+    #expect(monitor.effectiveSnapshot?.reports.contains { $0.provider == "cursor" } == true)
+}
+
 @Test func malformedOutputSurfacesAnError() {
     #expect(throws: UsageClientError.self) {
         try UsageClient.decode(Data("not json".utf8))
@@ -309,4 +544,77 @@ private func snapshot(_ limits: [(provider: String, id: String, remaining: Doubl
     // Each row is coloured by its own window, not by the provider's worst.
     #expect(lines[0].severity == .critical)
     #expect(lines[1].severity == .healthy)
+}
+
+// MARK: - Stats-derived cost estimates
+
+@Test func trackedProvidersIncludeEveryReportedProviderRegardlessOfUnit() {
+    let snap = snapshot([
+        ("anthropic", "a:7d", 0.5, nil, "ok"),
+        ("cursor", "c:api", 0.5, nil, "ok"),
+    ])
+    #expect(snap.trackedProviders == ["anthropic", "cursor"])
+}
+
+@Test func costEstimateLinesSkipProvidersOmpUsageAlreadyTracks() {
+    // Anthropic is a flat subscription (percent-only quota); Cursor already
+    // has its own real dollar meter. Neither should get a second, estimated
+    // cost number. DeepSeek has no `omp usage` report at all, so it is the
+    // only usage-priced candidate left.
+    let stats = StatsSnapshot(byModel: [
+        StatsModelEntry(model: "claude-opus", provider: "anthropic", totalCost: 12.0),
+        StatsModelEntry(model: "composer", provider: "cursor", totalCost: 3.0),
+        StatsModelEntry(model: "deepseek-v3", provider: "deepseek", totalCost: 0.79),
+    ])
+    let lines = stats.costEstimateLines(excluding: ["anthropic", "cursor"])
+    #expect(lines.map(\.limitID) == ["cost-estimate:deepseek"])
+    #expect(lines.first?.providerName == "Deepseek")
+    #expect(lines.first?.windowLabel == "Est. cost (24h)")
+    #expect(lines.first?.costUsed == 0.79)
+    #expect(lines.first?.costLimit == nil)
+    #expect(lines.first?.remainingFraction == nil)
+}
+
+@Test func costEstimateLinesSumMultipleModelsPerProvider() {
+    let stats = StatsSnapshot(byModel: [
+        StatsModelEntry(model: "model-a", provider: "openrouter", totalCost: 1.5),
+        StatsModelEntry(model: "model-b", provider: "openrouter", totalCost: 2.25),
+    ])
+    let lines = stats.costEstimateLines(excluding: [])
+    #expect(lines.first?.costUsed == 3.75)
+}
+
+@Test func costEstimateLinesDropZeroCostProviders() {
+    let stats = StatsSnapshot(byModel: [
+        StatsModelEntry(model: "model-a", provider: "nous", totalCost: 0)
+    ])
+    #expect(stats.costEstimateLines(excluding: []).isEmpty)
+}
+
+@MainActor
+@Test func monitorLinesAppendCostEstimatesAfterQuotaLines() {
+    let monitor = UsageMonitor(
+        defaults: UserDefaults(suiteName: "monitor-cost-lines-test")!,
+        seeded: snapshot([("anthropic", "a:7d", 0.5, nil, "ok")]),
+        seededStats: StatsSnapshot(byModel: [
+            StatsModelEntry(model: "claude-opus", provider: "anthropic", totalCost: 12.0),
+            StatsModelEntry(model: "deepseek-v3", provider: "deepseek", totalCost: 0.79),
+        ])
+    )
+    #expect(monitor.lines.map(\.limitID) == ["a:7d", "cost-estimate:deepseek"])
+}
+
+@Test func statsClientDecodeSkipsTheSyncProgressPreamble() throws {
+    // `omp stats --json` writes "Synced N entries..." to stdout before the
+    // JSON payload; decoding must not choke on it.
+    let output = "Synced 41 new entries from 4 files (24085 total)\n\n{\"byModel\":[{\"model\":\"m\",\"provider\":\"p\",\"totalCost\":1.5}]}"
+    let decoded = try StatsClient.decode(Data(output.utf8))
+    #expect(decoded.byModel.count == 1)
+    #expect(decoded.byModel.first?.totalCost == 1.5)
+}
+
+@Test func statsClientDecodeRejectsOutputWithNoJsonObject() {
+    #expect(throws: StatsClientError.self) {
+        try StatsClient.decode(Data("Synced 0 new entries from 0 files (0 total)\n".utf8))
+    }
 }

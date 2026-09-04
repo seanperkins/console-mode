@@ -110,6 +110,89 @@ struct PanelHarnessTests {
         #expect(shell.activeTab == .notes)
     }
 
+    @Test func onDataChangeExpandsPrewarmedPanelWhenUsageLinesArrive() throws {
+        let store = try NoteStore.inMemory()
+        _ = try store.append("alpha")
+        let model = NoteListModel(store: store)
+        let usage = UsageMonitor(defaults: SnapshotHarness.scratchDefaults(), seeded: nil)
+        let shell = ConsoleShell(notes: model, usage: usage)
+        shell.usageEnabled = true
+        shell.activeTab = .usage
+
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let metrics = ScreenLocator.metrics(for: screen)
+        let panel = ConsolePanel(shell: shell)
+        usage.onDataChange = {
+            shell.syncCollapsedCapacity()
+            panel.updateLayout(on: screen, animated: false)
+        }
+
+        panel.prewarm(on: screen)
+        #expect(shell.usageLineCount == 1)
+        let oneLineHeight = panel.frame.height
+        let expectedOneLine = PanelGeometry.panelHeight(
+            tab: .usage,
+            expanded: false,
+            visibleRowCount: shell.visibleRowCount,
+            lineCount: 1,
+            screenVisibleHeight: metrics.visibleHeight
+        )
+        #expect(oneLineHeight == expectedOneLine)
+
+        let fixture = try #require(SnapshotHarness.usageFixture())
+        let lineCount = fixture.allLines.count
+        #expect(lineCount == 8)
+
+        usage.simulateLoadedSnapshot(fixture)
+
+        let loadedHeight = panel.frame.height
+        let expectedLoaded = PanelGeometry.panelHeight(
+            tab: .usage,
+            expanded: false,
+            visibleRowCount: shell.visibleRowCount,
+            lineCount: lineCount,
+            screenVisibleHeight: metrics.visibleHeight
+        )
+        #expect(loadedHeight > oneLineHeight)
+        #expect(loadedHeight == expectedLoaded)
+    }
+
+    @Test func collapsedPanelKeepsHeightWhenSlashSuggestionsAppear() throws {
+        let store = try NoteStore.inMemory()
+        _ = try store.append("alpha")
+        _ = try store.append("beta")
+        let model = NoteListModel(store: store)
+        let usage = UsageMonitor(defaults: SnapshotHarness.scratchDefaults(), seeded: nil)
+        let shell = ConsoleShell(notes: model, usage: usage)
+        shell.usageEnabled = true
+        shell.activeTab = .notes
+
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let metrics = ScreenLocator.metrics(for: screen)
+        let panel = ConsolePanel(shell: shell)
+        panel.prewarm(on: screen)
+
+        model.draft = ""
+        panel.updateLayout(on: screen, animated: false)
+        let withoutPalette = panel.frame.height
+
+        model.draft = "/"
+        panel.updateLayout(on: screen, animated: false)
+        let withPalette = panel.frame.height
+
+        let expected = PanelGeometry.panelHeight(
+            tab: .notes,
+            expanded: false,
+            visibleRowCount: shell.visibleRowCount,
+            lineCount: shell.usageLineCount,
+            screenVisibleHeight: metrics.visibleHeight,
+            noteDetailExtraHeight: shell.notesDetailExtraHeight
+        )
+        #expect(withoutPalette == expected)
+        #expect(withPalette == expected)
+        #expect(shell.notes.commandSuggestionExtraHeight > 0)
+    }
+
     @Test func panelHeightMatchesAcrossTabs() throws {
         let shell = try makeShell()
         let notesHeight = SnapshotHarness.height(for: shell)
@@ -128,6 +211,7 @@ struct PanelHarnessTests {
             .init(name: "notes-system", theme: .system, notes: notes),
             .init(name: "notes-expanded-cyberpunk", theme: .cyberpunk, expanded: true, notes: notes),
             .init(name: "notes-editing-cyberpunk", theme: .cyberpunk, notes: notes, selectNewest: true),
+            .init(name: "notes-slash-suggestions-cyberpunk", theme: .cyberpunk, notes: notes, draft: "/"),
             .init(name: "notes-empty-cyberpunk", theme: .cyberpunk, notes: []),
             .init(name: "usage-cyberpunk", tab: .usage, theme: .cyberpunk, notes: notes),
             .init(name: "usage-terminal", tab: .usage, theme: .terminal, notes: notes),

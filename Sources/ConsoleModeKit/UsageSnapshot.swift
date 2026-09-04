@@ -82,6 +82,37 @@ struct UsageLimit: Codable, Equatable, Sendable {
         let capText = unit == "usd" ? "$\(number(cap))" : "\(number(cap))%"
         return "\(usedText) of \(capText) used"
     }
+
+    /// Dollar figure for usage-based providers billed in real currency (Cursor's
+    /// "Other Models" overage meter today, any future usd-unit meter tomorrow).
+    /// `nil` for percent/request meters so the row falls back to the fraction text.
+    var costUsed: Double? { amount.unit == "usd" ? amount.used : nil }
+
+    /// The cap this meter spends against, when the provider sent one — shown
+    /// alongside `costUsed` as "$used / $limit" so the row reads as spend,
+    /// never as a remaining-budget figure that would hide an exhausted cap.
+    var costLimit: Double? { amount.unit == "usd" ? amount.limit : nil }
+
+    /// A real remaining balance with no known cap (DeepSeek's account
+    /// balance today) — distinct from `costUsed`/`costLimit`, which always
+    /// read as spend against a budget. Only set when the provider reported
+    /// *just* a remaining figure (no `used`, no `limit`); a capped or
+    /// spend-tracking usd meter already renders through `costUsed`.
+    var costRemaining: UsageMoneyAmount? {
+        guard amount.used == nil, amount.limit == nil,
+              let remaining = amount.remaining,
+              let unit = amount.unit, unit != "percent", unit != "requests"
+        else { return nil }
+        return UsageMoneyAmount(value: remaining, currencyCode: unit)
+    }
+}
+
+/// A real dollar (or other currency) figure with no known cap to measure a
+/// fraction against — shown as "$X.XX left", never framed as spend.
+struct UsageMoneyAmount: Equatable, Sendable {
+    var value: Double
+    /// Lowercased currency code as the provider reported it (`"usd"`, `"cny"`, …).
+    var currencyCode: String
 }
 
 extension Double {
@@ -188,6 +219,11 @@ struct UsageLine: Equatable, Sendable, Identifiable {
     var isExhausted: Bool
     /// Absolute figures for the tooltip.
     var amountDetail: String?
+    /// Dollar figure shown directly in the row for usd-billed meters, in place
+    /// of the fraction text that would otherwise read as a meaningless percent.
+    var costUsed: Double?
+    var costLimit: Double?
+    var costRemaining: UsageMoneyAmount?
 
     var id: String { limitID }
 }
@@ -216,9 +252,23 @@ extension UsageSnapshot {
                     severity: limit.remainingFraction.map(UsageSeverity.forRemaining) ?? .healthy,
                     resetDate: limit.window?.resetDate,
                     isExhausted: limit.isExhausted,
-                    amountDetail: limit.amountDetail
+                    amountDetail: limit.amountDetail,
+                    costUsed: limit.costUsed,
+                    costLimit: limit.costLimit,
+                    costRemaining: limit.costRemaining
                 )
             }
         }
+    }
+}
+
+extension UsageSnapshot {
+    /// Providers `omp usage` has any report for — a subscription quota, a
+    /// real dollar meter, or both. Excluded from the stats-derived cost
+    /// section so a provider never shows two different cost numbers: a flat
+    /// subscription's catalog price is not what the user pays, and a real
+    /// dollar meter (Cursor's overage pool) already has its own precise row.
+    var trackedProviders: Set<String> {
+        Set(reports.map(\.provider))
     }
 }

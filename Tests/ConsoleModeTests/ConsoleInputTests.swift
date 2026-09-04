@@ -79,6 +79,64 @@ import Testing
     #expect(ConsoleInput.parse("see ~/sites/foo") == .note(body: "see ~/sites/foo", tags: []))
 }
 
+
+@Test func commandDraftDetection() {
+    #expect(ConsoleInput.isCommandDraft("/help"))
+    #expect(ConsoleInput.isCommandDraft("  /tag foo"))
+    #expect(!ConsoleInput.isCommandDraft("buy /help"))
+    #expect(!ConsoleInput.isCommandDraft("note text"))
+}
+
+@Test func commandPlaceholderHints() {
+    #expect(ConsoleInput.commandPlaceholder(for: "/") == "help, tag, done, delete…")
+    #expect(ConsoleInput.commandPlaceholder(for: "/help") == "list commands")
+    #expect(ConsoleInput.commandPlaceholder(for: "/tag") == "/tag project-name")
+    #expect(ConsoleInput.commandPlaceholder(for: "/nope").contains("Unknown"))
+}
+
+
+@Test func commandSuggestionsFilterByPrefix() {
+    let names = Set(ConsoleInput.commandSuggestions(for: "/f").map(\.name))
+    #expect(names.contains("find"))
+    #expect(!names.contains("delete"))
+}
+
+@Test func commandSuggestionsIncludeAliases() {
+    let matches = ConsoleInput.commandSuggestions(for: "/h")
+    #expect(matches.contains { $0.command == .help && $0.name == "h" })
+}
+
+@Test func commandSuggestionsHideOnceArgumentStarts() {
+    #expect(ConsoleInput.commandSuggestions(for: "/find ").isEmpty)
+    #expect(ConsoleInput.commandSuggestions(for: "/tag foo").isEmpty)
+}
+
+@Test func applyCommandSuggestionUsesCanonicalName() {
+    let suggestion = CommandSuggestion(command: .help, name: "h", summary: SlashCommand.help.summary)
+    #expect(ConsoleInput.applyCommandSuggestion(suggestion, to: "/h") == "/help")
+}
+
+@Test func commonCommandPrefixFindsSharedStem() {
+    let suggestions = [
+        CommandSuggestion(command: .analyze, name: "analyze", summary: ""),
+        CommandSuggestion(command: .actions, name: "actions", summary: ""),
+    ]
+    #expect(ConsoleInput.commonCommandPrefix(in: suggestions) == "a")
+}
+
+@Test func remindCommandParses() {
+    #expect(ConsoleInput.parse("/remind tomorrow 9am") == .command(.remind, argument: "tomorrow 9am"))
+    #expect(ConsoleInput.parse("/unremind") == .command(.unremind, argument: ""))
+}
+
+@Test func findCommandParses() {
+    #expect(ConsoleInput.parse("/find invoice") == .command(.find, argument: "invoice"))
+    #expect(ConsoleInput.parse("/project console-mode") == .command(.project, argument: "console-mode"))
+    #expect(ConsoleInput.parse("/todo") == .command(.todo, argument: ""))
+    #expect(ConsoleInput.parse("/review") == .command(.review, argument: ""))
+    #expect(ConsoleInput.parse("/copy") == .command(.copy, argument: ""))
+}
+
 // MARK: - Command routing
 
 @MainActor
@@ -189,6 +247,57 @@ struct ConsoleCommandTests {
 
         #expect(try store.fetchRecent(limit: 10).isEmpty)
         #expect(model.statusMessage?.contains("/frobnicate") == true)
+    }
+
+
+    @Test func remindCreatesNoteWithReminder() throws {
+        let store = try NoteStore.inMemory()
+        let model = NoteListModel(store: store)
+        let ref = Date(timeIntervalSince1970: 1_700_000_000)
+
+        model.draft = "/remind in 30m follow up"
+        model.commitDraft()
+
+        let saved = try store.fetchRecent(limit: 1).first!
+        #expect(saved.body == "follow up")
+        #expect(saved.remindAt != nil)
+        if let remindAt = saved.remindAt {
+            #expect(remindAt > ref.timeIntervalSince1970)
+        }
+    }
+
+    @Test func findCommandFiltersNotes() throws {
+        let store = try NoteStore.inMemory()
+        _ = try store.append("pay invoice")
+        _ = try store.append("walk the dog")
+        let model = NoteListModel(store: store)
+
+        model.draft = "/find invoice"
+        model.commitDraft()
+
+        #expect(model.filter == .text("invoice"))
+        #expect(model.notes.map(\.body) == ["pay invoice"])
+        #expect(model.expanded)
+    }
+
+    @Test func reviewWalksIncompleteNotes() throws {
+        let store = try NoteStore.inMemory()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        _ = try store.append("first", at: base)
+        _ = try store.append("second", at: base.addingTimeInterval(60))
+        let model = NoteListModel(store: store)
+
+        model.draft = "/review"
+        model.commitDraft()
+
+        #expect(model.isReviewing)
+        #expect(model.draft == "first")
+
+        model.draft = "/done"
+        model.commitDraft()
+
+        #expect(model.draft == "second")
+        #expect(try store.fetchNote(id: try store.fetchFiltered(.text("first"), limit: 1).first!.id!)?.isCompleted == true)
     }
 
     @Test func quitCommandRaisesAnAction() {

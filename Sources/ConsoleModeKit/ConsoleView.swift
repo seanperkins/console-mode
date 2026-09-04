@@ -127,13 +127,23 @@ struct ConsoleView: View {
 
     private func notesTab(_ theme: ThemeTokens) -> some View {
         VStack(spacing: 0) {
+            if let label = model.filterLabel {
+                filterBanner(label, theme: theme)
+            }
+
             noteSection
 
             Rectangle()
                 .fill(theme.dividerColor)
                 .frame(height: PanelGeometry.dividerHeight)
 
+            // Reserve input height in layout; the palette draws upward as an overlay.
+            Color.clear
+                .frame(height: PanelGeometry.inputHeight)
+        }
+        .overlay(alignment: .bottom) {
             inputBar
+                .zIndex(1)
         }
     }
 
@@ -147,6 +157,7 @@ struct ConsoleView: View {
                             NoteRow(
                                 note: note,
                                 isSelected: model.isNoteSelected(note),
+                                showsDetail: model.isNoteSelected(note),
                                 onToggle: { model.toggleCompletion(for: note) }
                             )
                             .id(note.id)
@@ -177,6 +188,7 @@ struct ConsoleView: View {
                     NoteRow(
                         note: note,
                         isSelected: model.isNoteSelected(note),
+                        showsDetail: model.isNoteSelected(note),
                         onToggle: { model.toggleCompletion(for: note) }
                     )
                 }
@@ -203,13 +215,29 @@ struct ConsoleView: View {
         }
     }
 
+
+    private func filterBanner(_ label: String, theme: ThemeTokens) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: model.isReviewing ? "tray.full" : "line.3.horizontal.decrease.circle")
+                .font(.system(size: 11, weight: .semibold))
+            Text(theme.label(label))
+                .font(theme.captionFont)
+                .tracking(theme.labelTracking)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(theme.accent)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(theme.selectionFill.opacity(0.65))
+    }
+
     private var placeholderRow: some View {
         let theme = shell.theme
         return HStack {
             Image(systemName: "circle")
                 .foregroundStyle(theme.textTertiary)
             // Secondary, not tertiary: this is the only text on an empty card.
-            Text(theme.label("No notes yet"))
+            Text(theme.label(model.emptyListMessage))
                 .font(theme.bodyFont)
                 .tracking(theme.labelTracking)
                 .foregroundStyle(theme.textSecondary)
@@ -220,7 +248,9 @@ struct ConsoleView: View {
     }
 
     private var inputBar: some View {
-        ConsoleInputBar(model: model, theme: shell.theme)
+        let overlay = model.commandSuggestionExtraHeight
+        return ConsoleInputBar(model: model, theme: shell.theme)
             .padding(.horizontal, 12)
+            .frame(height: PanelGeometry.inputHeight + overlay)
     }
 }

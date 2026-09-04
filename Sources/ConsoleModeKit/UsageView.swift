@@ -87,8 +87,41 @@ struct UsageRow: View {
     }
 
     private var remainingText: String {
+        if let cost = costText { return cost }
         guard let fraction = line.remainingFraction else { return "—" }
         return UsageAlert.format(fraction) + " left"
+    }
+
+    /// Dollar figure for usage-based meters — shown instead of a percent, since
+    /// a raw fraction of an uncapped budget would be meaningless.
+    ///
+    /// Two distinct shapes: `costUsed` always shows what was *spent* (a
+    /// "remaining" figure alone would hide an exhausted cap behind "$0
+    /// left"). `costRemaining` is the opposite case — a real account
+    /// balance with no known cap to measure spend against (DeepSeek) — so
+    /// showing what is left is the only figure that means anything.
+    private var costText: String? {
+        if let used = line.costUsed {
+            func money(_ value: Double) -> String {
+                value == value.rounded() ? "$\(Int(value))" : String(format: "$%.2f", value)
+            }
+            if let limit = line.costLimit { return "\(money(used)) / \(money(limit))" }
+            return money(used) + " used"
+        }
+        if let remaining = line.costRemaining {
+            return UsageRow.money(remaining) + " left"
+        }
+        return nil
+    }
+
+    /// Never prefixes a non-USD balance with `$` — DeepSeek accounts can
+    /// carry a CNY balance, and mislabeling it as dollars would be wrong by
+    /// roughly 7x.
+    private static func money(_ amount: UsageMoneyAmount) -> String {
+        let number = amount.value == amount.value.rounded()
+            ? "\(Int(amount.value))"
+            : String(format: "%.2f", amount.value)
+        return amount.currencyCode == "usd" ? "$\(number)" : "\(number) \(amount.currencyCode.uppercased())"
     }
 
     private var resetText: String {
@@ -123,7 +156,7 @@ struct UsageRow: View {
     }
 
     private var accessibilityText: String {
-        let remaining = line.remainingFraction.map { UsageAlert.format($0) + " remaining" } ?? "no data"
+        let remaining = costText ?? line.remainingFraction.map { UsageAlert.format($0) + " remaining" } ?? "no data"
         let provider = line.providerName ?? ""
         return "\(provider) \(line.windowLabel), \(remaining)"
     }
@@ -134,21 +167,30 @@ struct UsageView: View {
     @Bindable var monitor: UsageMonitor
 
     var body: some View {
-        VStack(spacing: 0) {
-            if monitor.lines.isEmpty {
-                emptyRow
-            } else {
-                ForEach(monitor.lines) { line in
-                    UsageRow(line: line)
+        GeometryReader { geometry in
+            let footerBlock = PanelGeometry.dividerHeight + PanelGeometry.usageFooterHeight
+            VStack(spacing: 0) {
+                if monitor.lines.isEmpty {
+                    emptyRow
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 0) {
+                            ForEach(monitor.lines) { line in
+                                UsageRow(line: line)
+                            }
+                        }
+                    }
+                    .frame(height: max(PanelGeometry.usageRowHeight, geometry.size.height - footerBlock))
                 }
+
+                Rectangle()
+                    .fill(theme.dividerColor)
+                    .frame(height: PanelGeometry.dividerHeight)
+
+                footer
             }
-
-            Rectangle()
-                .fill(theme.dividerColor)
-                .frame(height: PanelGeometry.dividerHeight)
-
-            footer
         }
+        .frame(minHeight: PanelGeometry.usageRowHeight + PanelGeometry.dividerHeight + PanelGeometry.usageFooterHeight)
     }
 
     private var emptyRow: some View {

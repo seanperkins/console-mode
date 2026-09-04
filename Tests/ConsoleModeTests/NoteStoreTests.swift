@@ -141,3 +141,59 @@ import Testing
     #expect(try store.deleteAll() == 0)
     #expect(try store.count() == 0)
 }
+@Test func fetchFilteredFindsSubstring() throws {
+    let store = try NoteStore.inMemory()
+    _ = try store.append("buy oat milk")
+    _ = try store.append("fix the API")
+    _ = try store.append("ship Oat Milk recipe")
+
+    let hits = try store.fetchFiltered(.text("oat"), limit: 10)
+    #expect(hits.map(\.body).sorted() == ["buy oat milk", "ship Oat Milk recipe"].sorted())
+}
+
+@Test func fetchFilteredMatchesLiteralPercentAndUnderscore() throws {
+    let store = try NoteStore.inMemory()
+    _ = try store.append("discount is 100% off")
+    _ = try store.append("foo_bar is not a wildcard")
+    _ = try store.append("totally unrelated")
+
+    let percentHits = try store.fetchFiltered(.text("100%"), limit: 10)
+    #expect(percentHits.map(\.body) == ["discount is 100% off"])
+
+    let underscoreHits = try store.fetchFiltered(.text("foo_bar"), limit: 10)
+    #expect(underscoreHits.map(\.body) == ["foo_bar is not a wildcard"])
+}
+
+@Test func fetchFilteredByProject() throws {
+    let store = try NoteStore.inMemory()
+    let a = try store.append("one")!
+    let b = try store.append("two")!
+    try store.setProject(id: a.id!, project: "console-mode", confidence: 1)
+    try store.setProject(id: b.id!, project: "other", confidence: 1)
+
+    let hits = try store.fetchFiltered(.project("console-mode"), limit: 10)
+    #expect(hits.map(\.body) == ["one"])
+}
+
+@Test func fetchFilteredIncomplete() throws {
+    let store = try NoteStore.inMemory()
+    let open = try store.append("still open")!
+    let done = try store.append("finished")!
+    try store.setCompleted(id: done.id!, completed: true)
+
+    let hits = try store.fetchFiltered(.incomplete, limit: 10)
+    #expect(hits.map(\.body) == ["still open"])
+}
+
+@Test func reviewQueueIsOldestIncompleteFirst() throws {
+    let store = try NoteStore.inMemory()
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    _ = try store.append("newest", at: base.addingTimeInterval(120))
+    _ = try store.append("oldest", at: base)
+    let done = try store.append("done", at: base.addingTimeInterval(60))!
+    try store.setCompleted(id: done.id!, completed: true)
+
+    #expect(try store.fetchReviewQueue(limit: 10).map(\.body) == ["oldest", "newest"])
+}
+
+

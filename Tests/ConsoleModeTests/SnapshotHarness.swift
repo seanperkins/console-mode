@@ -21,6 +21,8 @@ enum SnapshotHarness {
         var seedUsage: Bool = true
         /// Loads the newest note into the input, capturing the editing state.
         var selectNewest: Bool = false
+        /// Pre-fills the capture field (e.g. "/" for slash-command palette).
+        var draft: String? = nil
     }
 
     /// In-memory database, so the real notes file is never touched.
@@ -48,6 +50,9 @@ enum SnapshotHarness {
         if scenario.selectNewest {
             model.navigateToOlderNote()
         }
+        if let draft = scenario.draft {
+            model.draft = draft
+        }
         return shell
     }
 
@@ -66,7 +71,8 @@ enum SnapshotHarness {
             expanded: shell.notes.expanded,
             visibleRowCount: shell.visibleRowCount,
             lineCount: shell.usageLineCount,
-            screenVisibleHeight: 1_200
+            screenVisibleHeight: 1_200,
+            noteDetailExtraHeight: shell.notesDetailExtraHeight
         )
     }
 

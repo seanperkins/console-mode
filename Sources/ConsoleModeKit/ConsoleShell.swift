@@ -54,9 +54,12 @@ final class ConsoleShell {
     func select(_ tab: ConsoleTab) {
         guard tabs.contains(tab), tab != activeTab else { return }
         activeTab = tab
-        if tab == .usage {
+        switch tab {
+        case .usage:
             // Opening the tab is an explicit request for current numbers.
             Task { await usage.refresh() }
+        case .notes:
+            notes.requestInputFocus()
         }
     }
 
@@ -66,6 +69,7 @@ final class ConsoleShell {
 
     /// Rows the notes tab wants to show, used for panel height.
     var visibleRowCount: Int { notes.visibleRowCount }
+    var notesDetailExtraHeight: CGFloat { notes.selectedNoteDetailExtraHeight }
 
     /// Rows the usage tab wants: one per limit across every provider, and at
     /// least one so the empty state fits.

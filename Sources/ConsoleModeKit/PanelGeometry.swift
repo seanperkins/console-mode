@@ -17,12 +17,51 @@ enum PanelGeometry {
     static let usageRowHeight: CGFloat = 22
     /// Footer line carrying refresh time and errors.
     static let usageFooterHeight: CGFloat = 18
+    static let suggestionRowHeight: CGFloat = 22
+    static let suggestionPadding: CGFloat = 6
+    static let suggestionMaxVisibleRows = 8
+    /// Filter chip above the note list when a filter or review queue is active.
+    static let filterBannerHeight: CGFloat = 22
 
-    static func contentHeight(visibleRowCount: Int) -> CGFloat {
+    static func commandSuggestionOverlayMaxHeight(
+        visibleRowCount: Int,
+        noteDetailExtraHeight: CGFloat = 0,
+        hasFilterBanner: Bool = false
+    ) -> CGFloat {
+        let rows = CGFloat(max(visibleRowCount, 1))
+        let banner = hasFilterBanner ? filterBannerHeight : 0
+        return banner + rows * rowHeight + noteDetailExtraHeight + dividerHeight
+    }
+
+    static func commandSuggestionLayout(
+        suggestionCount: Int,
+        maxHeight: CGFloat
+    ) -> (height: CGFloat, visibleRows: Int) {
+        guard suggestionCount > 0, maxHeight > 0 else { return (0, 0) }
+        let maxRowsByHeight = Int(floor((maxHeight - suggestionPadding) / suggestionRowHeight))
+        let visibleRows = min(suggestionCount, suggestionMaxVisibleRows, max(0, maxRowsByHeight))
+        guard visibleRows > 0 else { return (0, 0) }
+        let height = CGFloat(visibleRows) * suggestionRowHeight + suggestionPadding
+        return (height, visibleRows)
+    }
+
+
+    static func commandSuggestionExtraHeight(
+        suggestionCount: Int,
+        maxHeight: CGFloat = .greatestFiniteMagnitude
+    ) -> CGFloat {
+        commandSuggestionLayout(suggestionCount: suggestionCount, maxHeight: maxHeight).height
+    }
+
+    static func contentHeight(
+        visibleRowCount: Int,
+        noteDetailExtraHeight: CGFloat = 0
+    ) -> CGFloat {
         let rows = max(visibleRowCount, 1)
         return tabBarHeight
             + verticalPadding * 2
             + CGFloat(rows) * rowHeight
+            + noteDetailExtraHeight
             + dividerHeight
             + inputHeight
     }
@@ -63,22 +102,21 @@ enum PanelGeometry {
         expanded: Bool,
         visibleRowCount: Int,
         lineCount: Int,
-        screenVisibleHeight: CGFloat
+        screenVisibleHeight: CGFloat,
+        noteDetailExtraHeight: CGFloat = 0
     ) -> CGFloat {
         let baseline = baselineHeight(lineCount: lineCount)
+        let notesHeight = contentHeight(
+            visibleRowCount: visibleRowCount,
+            noteDetailExtraHeight: noteDetailExtraHeight
+        )
         let desired: CGFloat
         switch tab {
         case .notes:
-            // Expanding may grow past the baseline but never shrinks below it.
-            desired = expanded
-                ? max(contentHeight(visibleRowCount: visibleRowCount), baseline)
-                : baseline
+            desired = max(notesHeight, baseline)
         case .usage:
-            // Baseline, not raw usage height: with few limits the notes tab is the
-            // taller one, and both must agree for the card to stay still.
-            desired = baseline
+            desired = max(baseline, usageHeight(lineCount: lineCount))
         }
-        // Never taller than half the screen, on either tab.
         return min(desired, screenVisibleHeight / 2)
     }
 
@@ -87,14 +125,16 @@ enum PanelGeometry {
         tab: ConsoleTab,
         expanded: Bool,
         visibleRowCount: Int,
-        lineCount: Int
+        lineCount: Int,
+        noteDetailExtraHeight: CGFloat = 0
     ) -> CGRect {
         let height = panelHeight(
             tab: tab,
             expanded: expanded,
             visibleRowCount: visibleRowCount,
             lineCount: lineCount,
-            screenVisibleHeight: screen.visibleHeight
+            screenVisibleHeight: screen.visibleHeight,
+            noteDetailExtraHeight: noteDetailExtraHeight
         )
         let x = screen.visibleOriginX + (screen.visibleWidth - cardWidth) / 2
         let y = screen.visibleOriginY + screen.visibleHeight - topGapBelowMenuBar - height

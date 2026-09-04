@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GRDB
 import Observation
@@ -13,11 +14,15 @@ final class NoteListModel {
     /// Unsaved new-note text stashed while walking the list with the arrow keys.
     private var pendingDraft = ""
     private(set) var isBackfilling = false
+    private(set) var isAnalyzing = false
     var tagStatus: String?
+    var analyzeStatus: String?
     /// Transient feedback shown as the input placeholder; cleared on the next keystroke.
     var statusMessage: String?
     /// Set by AppDelegate for commands the model cannot perform itself.
     var onAction: ((ConsoleAction) -> Void)?
+    private(set) var filter: NoteFilter = .all
+    private(set) var isReviewing = false
 
     private let store: NoteStore
     private var observation: AnyDatabaseCancellable?
@@ -54,8 +59,40 @@ final class NoteListModel {
 
     var focusToken = 0
 
+    /// Space above the input row available for the slash-command palette overlay.
+    var commandSuggestionOverlayMaxHeight: CGFloat {
+        PanelGeometry.commandSuggestionOverlayMaxHeight(
+            visibleRowCount: visibleRowCount,
+            noteDetailExtraHeight: selectedNoteDetailExtraHeight,
+            hasFilterBanner: filterLabel != nil
+        )
+    }
+
+    /// Height of the slash-command palette when visible. Overlays the note list; does not resize the panel.
+    var commandSuggestionExtraHeight: CGFloat {
+        PanelGeometry.commandSuggestionExtraHeight(
+            suggestionCount: ConsoleInput.commandSuggestions(for: draft).count,
+            maxHeight: commandSuggestionOverlayMaxHeight
+        )
+    }
+    /// Extra list height while a note is selected and its detail strip is visible.
+    var selectedNoteDetailExtraHeight: CGFloat {
+        guard let note = editingNote else { return 0 }
+        return NoteDetailLayout.detailHeight(for: note)
+    }
+
     var isEditingExistingNote: Bool {
         editingNoteID != nil
+    }
+
+    var filterLabel: String? {
+        if isReviewing { return "Review" }
+        return filter.label
+    }
+
+    var emptyListMessage: String {
+        if filter.isActive { return "No matches" }
+        return "No notes yet"
     }
 
     /// Rows the current tab state wants loaded.
@@ -67,7 +104,7 @@ final class NoteListModel {
     /// this the card paints empty on first summon, and any read-after-write (the
     /// completion checkbox) would see a stale row.
     func refreshNotes() {
-        if let fresh = try? store.fetchRecent(limit: observationLimit) {
+        if let fresh = try? store.fetchFiltered(filter, limit: observationLimit) {
             notes = fresh
         }
     }
@@ -75,11 +112,15 @@ final class NoteListModel {
     func restartObservation() {
         observation?.cancel()
         refreshNotes()
-        observation = store.observeRecent(limit: observationLimit) { [weak self] notes in
+        observation = store.observeFiltered(filter, limit: observationLimit) { [weak self] notes in
             Task { @MainActor in
                 self?.notes = notes
             }
         }
+    }
+
+    private func navigationList() throws -> [Note] {
+        try store.fetchFiltered(filter, limit: 200)
     }
 
     func toggleExpanded() {
@@ -120,6 +161,7 @@ final class NoteListModel {
                 } else {
                     scheduleTagging(noteID: id, body: saved.body)
                 }
+                exportCapturedNote(saved)
             }
         } catch {
             NSLog("Failed to save note: \(error)")
@@ -163,9 +205,67 @@ final class NoteListModel {
                 return
             }
             toggleCompletionForEditingNote()
-            statusMessage = isEditingNoteCompleted ? "Marked done." : "Marked not done."
             draft = ""
-            clearEditing()
+            if isReviewing {
+                statusMessage = "Marked done."
+                advanceReview()
+            } else {
+                statusMessage = isEditingNoteCompleted ? "Marked done." : "Marked not done."
+                clearEditing()
+            }
+
+        case .find:
+            guard !argument.isEmpty else {
+                statusMessage = "Usage: /find search text"
+                draft = ""
+                return
+            }
+            applyFilter(.text(argument))
+
+        case .project:
+            guard let slug = ProjectTagger.normalize(argument) else {
+                statusMessage = "Usage: /project name"
+                draft = ""
+                return
+            }
+            applyFilter(.project(slug))
+
+        case .todo:
+            applyFilter(.incomplete)
+
+        case .all:
+            stopReview()
+            applyFilter(.all)
+
+        case .review:
+            startReview()
+
+        case .next:
+            guard isReviewing else {
+                statusMessage = "Start with /review first."
+                draft = ""
+                return
+            }
+            draft = ""
+            advanceReview(skipping: true)
+
+        case .copy:
+            copyEditingNote()
+
+        case .remind:
+            setReminder(from: argument)
+
+        case .unremind:
+            clearReminder()
+
+        case .analyze:
+            runAnalyze(argument: argument)
+
+        case .actions:
+            applyFilter(.actionable)
+
+        case .unaction:
+            clearActionReviewOnSelection()
 
         case .clear:
             draft = ""
@@ -179,6 +279,7 @@ final class NoteListModel {
                 return
             }
             do {
+                ReminderScheduler.cancel(noteID: id)
                 try store.delete(id: id)
                 clearEditing()
                 statusMessage = "Deleted."
@@ -285,14 +386,14 @@ final class NoteListModel {
     func navigateToOlderNote() {
         do {
             if !expanded {
-                let total = try store.fetchRecent(limit: 200).count
+                let total = try navigationList().count
                 if total > 1 {
                     expanded = true
                     restartObservation()
                 }
             }
 
-            let list = try store.fetchRecent(limit: 200)
+            let list = try navigationList()
             guard !list.isEmpty else { return }
 
             if let editingNoteID, let index = list.firstIndex(where: { $0.id == editingNoteID }) {
@@ -300,7 +401,6 @@ final class NoteListModel {
                 guard nextIndex < list.count else { return }
                 beginEditing(list[nextIndex])
             } else {
-                // Stash the unsaved line so walking back down restores it, like shell history.
                 pendingDraft = draft
                 beginEditing(list[0])
             }
@@ -313,7 +413,7 @@ final class NoteListModel {
         guard let editingNoteID else { return }
 
         do {
-            let list = try store.fetchRecent(limit: 200)
+            let list = try navigationList()
             guard let index = list.firstIndex(where: { $0.id == editingNoteID }) else {
                 clearEditing()
                 return
@@ -332,9 +432,12 @@ final class NoteListModel {
     func toggleCompletion(for note: Note) {
         guard let id = note.id else { return }
         do {
-            try store.setCompleted(id: id, completed: !note.isCompleted)
-            // `editingNote` reads `notes` first, so it has to see the new value
-            // immediately rather than waiting for the observation to land.
+            let markingDone = !note.isCompleted
+            try store.setCompleted(id: id, completed: markingDone)
+            if markingDone, note.remindAt != nil {
+                try store.setRemindAt(id: id, date: nil)
+                ReminderScheduler.cancel(noteID: id)
+            }
             refreshNotes()
         } catch {
             NSLog("Failed to toggle completion: \(error)")
@@ -366,11 +469,266 @@ final class NoteListModel {
         return editingNoteID == noteID
     }
 
+
+    // MARK: - Filters and review
+
+    private func applyFilter(_ filter: NoteFilter) {
+        isReviewing = false
+        self.filter = filter
+        draft = ""
+        pendingDraft = ""
+        clearEditing()
+        if filter.isActive, !expanded {
+            expanded = true
+        }
+        restartObservation()
+        statusMessage = filter.label ?? "Showing all notes."
+    }
+
+    private func startReview() {
+        do {
+            let queue = try store.fetchReviewQueue(limit: 200)
+            guard let first = queue.first else {
+                statusMessage = "Inbox clear."
+                draft = ""
+                return
+            }
+            isReviewing = true
+            filter = .incomplete
+            expanded = true
+            restartObservation()
+            beginEditing(first)
+            statusMessage = "Reviewing \(queue.count) note\(queue.count == 1 ? "" : "s"). /next to skip."
+        } catch {
+            NSLog("Failed to start review: \(error)")
+            statusMessage = "Could not start review."
+            draft = ""
+        }
+    }
+
+    private func stopReview() {
+        isReviewing = false
+    }
+
+    private func advanceReview(skipping: Bool = false) {
+        guard isReviewing else { return }
+        do {
+            let queue = try store.fetchReviewQueue(limit: 200)
+            guard !queue.isEmpty else {
+                stopReview()
+                filter = .all
+                restartObservation()
+                clearEditing()
+                statusMessage = "Inbox clear."
+                return
+            }
+
+            if skipping, let currentID = editingNoteID,
+               let index = queue.firstIndex(where: { $0.id == currentID }) {
+                let nextIndex = index + 1
+                if nextIndex < queue.count {
+                    beginEditing(queue[nextIndex])
+                    return
+                }
+                statusMessage = "End of queue."
+                beginEditing(queue[0])
+                return
+            }
+
+            beginEditing(queue[0])
+        } catch {
+            NSLog("Failed to advance review: \(error)")
+            statusMessage = "Review stalled."
+        }
+    }
+
+    private func copyEditingNote() {
+        guard let note = editingNote else {
+            statusMessage = "Press ↑ to pick a note first."
+            draft = ""
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(note.body, forType: .string)
+        statusMessage = "Copied."
+        draft = ""
+        if !isReviewing {
+            clearEditing()
+        }
+    }
+
+
+
+    // MARK: - Action review
+
+    private func runAnalyze(argument: String) {
+        guard !isAnalyzing else { return }
+        let config = ActionReviewSettings.current
+        guard config.isEnabled else {
+            statusMessage = "Action review is turned off in Settings."
+            draft = ""
+            return
+        }
+
+        let notes: [Note]
+        if argument.isEmpty, let selected = editingNote {
+            notes = [selected]
+        } else {
+            let limit = Int(argument.trimmingCharacters(in: .whitespacesAndNewlines)) ?? config.batchSize
+            let capped = max(1, min(limit, 50))
+            do {
+                notes = try store.fetchUnreviewed(limit: capped)
+            } catch {
+                statusMessage = "Could not load notes to review."
+                draft = ""
+                return
+            }
+        }
+
+        guard !notes.isEmpty else {
+            statusMessage = "Nothing to analyze."
+            draft = ""
+            return
+        }
+
+        isAnalyzing = true
+        analyzeStatus = "Analyzing \(notes.count) note\(notes.count == 1 ? "" : "s")…"
+        statusMessage = analyzeStatus
+        draft = ""
+
+        let service = NoteActionService(store: store)
+        Task { [weak self] in
+            do {
+                let reviewed = try await service.reviewNotes(notes, config: config)
+                let remaining = service.unreviewedCount()
+                self?.isAnalyzing = false
+                self?.analyzeStatus = remaining == 0
+                    ? "Reviewed \(reviewed) note\(reviewed == 1 ? "" : "s")."
+                    : "Reviewed \(reviewed); \(remaining) still pending."
+                self?.statusMessage = self?.analyzeStatus
+            } catch {
+                self?.isAnalyzing = false
+                self?.analyzeStatus = nil
+                self?.statusMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func backfillActionReview(limit: Int? = nil) {
+        runAnalyze(argument: limit.map(String.init) ?? "")
+    }
+
+    private func clearActionReviewOnSelection() {
+        guard let id = editingNoteID else {
+            statusMessage = "Press ↑ to pick a note first."
+            draft = ""
+            return
+        }
+        do {
+            try store.clearActionReview(id: id)
+            statusMessage = "Cleared action review."
+        } catch {
+            statusMessage = "Could not clear action review."
+        }
+        draft = ""
+        clearEditing()
+    }
+    // MARK: - Reminders and export
+
+    private func setReminder(from argument: String) {
+        guard !argument.isEmpty else {
+            statusMessage = "Usage: /remind tomorrow 9am"
+            draft = ""
+            return
+        }
+
+        let split = ReminderParser.splitArgument(argument)
+        guard case .success(let fireDate) = ReminderParser.parse(split.when) else {
+            statusMessage = "Could not parse \(split.when)."
+            draft = ""
+            return
+        }
+
+        if let id = editingNoteID {
+            applyReminder(to: id, at: fireDate)
+            draft = ""
+            clearEditing()
+            return
+        }
+
+        if let body = split.body, !body.isEmpty {
+            do {
+                guard let saved = try store.append(body), let id = saved.id else { return }
+                applyReminder(to: id, at: fireDate)
+                draft = ""
+                exportCapturedNote(saved)
+            } catch {
+                statusMessage = "Could not save that note."
+                draft = ""
+            }
+            return
+        }
+
+        statusMessage = "Press ↑ to pick a note, or /remind tomorrow 9am buy milk"
+        draft = ""
+    }
+
+    private func clearReminder() {
+        guard let id = editingNoteID else {
+            statusMessage = "Press ↑ to pick a note first."
+            draft = ""
+            return
+        }
+        do {
+            try store.setRemindAt(id: id, date: nil)
+            ReminderScheduler.cancel(noteID: id)
+            refreshNotes()
+            statusMessage = "Reminder cleared."
+        } catch {
+            statusMessage = "Could not clear the reminder."
+        }
+        draft = ""
+        clearEditing()
+    }
+
+    private func applyReminder(to id: Int64, at date: Date) {
+        do {
+            try store.setRemindAt(id: id, date: date)
+            ReminderScheduler.cancel(noteID: id)
+            refreshNotes()
+            if let note = try store.fetchNote(id: id) {
+                Task { await ReminderScheduler.schedule(note: note) }
+            }
+            statusMessage = "Reminder set for \(ReminderParser.format(date))."
+        } catch {
+            statusMessage = "Could not set that reminder."
+        }
+    }
+
+    private func exportCapturedNote(_ note: Note) {
+        do {
+            try ObsidianExporter.export(note)
+        } catch ObsidianExportError.disabled, ObsidianExportError.missingVault {
+            return
+        } catch {
+            NSLog("Obsidian export failed: \(error)")
+        }
+    }
+
     private func beginEditing(_ note: Note) {
         guard let id = note.id else { return }
         editingNoteID = id
         draft = note.body
         scrollTargetID = id
+        if note.isActionable {
+            var message = note.actionSummary ?? "Actionable"
+            if let detail = note.actionDetail, !detail.isEmpty {
+                message += " — \(detail)"
+            }
+            statusMessage = message
+        } else if note.isActionReviewed {
+            statusMessage = "Reference note (not actionable)."
+        }
     }
 
     private func clearEditing() {

@@ -43,6 +43,14 @@ final class UsageMonitor {
     nonisolated static let rearmMargin = 0.02
 
     private(set) var snapshot: UsageSnapshot?
+    private(set) var statsSnapshot: StatsSnapshot?
+    private(set) var claudeStatus: ClaudeStatusSnapshot?
+    private(set) var deepSeekBalance: DeepSeekBalanceResponse?
+    /// When `deepSeekBalance` was actually fetched — never `Date()` at read
+    /// time, so a stale reading (kept on screen through a transient poll
+    /// failure) is never relabeled as fresh.
+    private(set) var deepSeekBalanceFetchedAt: Date?
+    private(set) var deepSeekError: String?
     private(set) var lastError: String?
     private(set) var isRefreshing = false
     private(set) var lastRefresh: Date?
@@ -50,24 +58,70 @@ final class UsageMonitor {
     private(set) var activeAlert: UsageAlert?
 
     var onAlert: ((UsageAlert) -> Void)?
+    /// Fired after every refresh attempt so the panel can resize to match the limit count.
+    var onDataChange: (@MainActor () -> Void)?
 
     private var firedThresholds: [String: Double]
     private var pollTask: Task<Void, Never>?
     private let defaults: UserDefaults
     private static let firedKey = "usage.firedThresholds"
 
-    var rollup: [ProviderUsage] { snapshot?.providerRollup ?? [] }
+    var rollup: [ProviderUsage] { effectiveSnapshot?.providerRollup ?? [] }
 
     /// Every limit, grouped by provider — one row each in the usage tab.
-    var lines: [UsageLine] { snapshot?.allLines ?? [] }
+    var lines: [UsageLine] { (effectiveSnapshot?.allLines ?? []) + costLines }
+
+    /// `snapshot` with any first-party reading substituted for `omp usage`'s
+    /// own report for that provider — Claude Code's own statusline (more
+    /// current than `omp usage`'s cache) and DeepSeek's real account balance
+    /// (a billing figure `omp usage` never reports at all). Substitution
+    /// (not addition) keeps rollup, severity, and threshold alerts from ever
+    /// double-counting the same account under two different rows.
+    var effectiveSnapshot: UsageSnapshot? {
+        let now = Date().timeIntervalSince1970 * 1000
+        var extra: [UsageReport] = []
+        if let claudeReport = claudeStatus?.asAnthropicReport(fetchedAt: now) { extra.append(claudeReport) }
+        if let deepSeekBalance, let deepSeekBalanceFetchedAt {
+            let fetchedAtMs = deepSeekBalanceFetchedAt.timeIntervalSince1970 * 1000
+            if let deepSeekReport = deepSeekBalance.asUsageReport(fetchedAt: fetchedAtMs) { extra.append(deepSeekReport) }
+        }
+
+        guard var snap = snapshot else {
+            guard !extra.isEmpty else { return nil }
+            return UsageSnapshot(generatedAt: extra.map(\.fetchedAt).max() ?? now, reports: extra)
+        }
+        guard !extra.isEmpty else { return snap }
+        let extraProviders = Set(extra.map(\.provider))
+        snap.reports.removeAll { extraProviders.contains($0.provider) }
+        snap.reports.append(contentsOf: extra)
+        return snap
+    }
+
+    /// Rows for usage-priced providers `omp usage` never reports a quota for
+    /// (DeepSeek, OpenRouter, Nous, ...), sourced from `omp stats`'s
+    /// catalog-priced token cost. Appended after every real limit line.
+    var costLines: [UsageLine] {
+        guard let statsSnapshot else { return [] }
+        return statsSnapshot.costEstimateLines(excluding: effectiveSnapshot?.trackedProviders ?? [])
+    }
 
     /// Worst severity across every provider, for the menu bar indicator.
     var worstSeverity: UsageSeverity {
         rollup.map(\.severity).max() ?? .healthy
     }
 
-    init(defaults: UserDefaults = .standard, seeded: UsageSnapshot? = nil) {
+    private let deepSeekCredentialStore: any DeepSeekCredentialStore
+
+    init(
+        defaults: UserDefaults = .standard,
+        seeded: UsageSnapshot? = nil,
+        seededStats: StatsSnapshot? = nil,
+        seededClaudeStatus: ClaudeStatusSnapshot? = nil,
+        seededDeepSeekBalance: DeepSeekBalanceResponse? = nil,
+        deepSeekCredentialStore: any DeepSeekCredentialStore = KeychainDeepSeekCredentialStore()
+    ) {
         self.defaults = defaults
+        self.deepSeekCredentialStore = deepSeekCredentialStore
         firedThresholds = defaults.dictionary(forKey: Self.firedKey) as? [String: Double] ?? [:]
         if let seeded {
             // Deterministic input for the offscreen harness and tests: no process
@@ -75,6 +129,41 @@ final class UsageMonitor {
             snapshot = seeded
             lastRefresh = Date(timeIntervalSince1970: 1_787_261_100)
         }
+        statsSnapshot = seededStats
+        claudeStatus = seededClaudeStatus
+        if let seededDeepSeekBalance {
+            deepSeekBalance = seededDeepSeekBalance
+            deepSeekBalanceFetchedAt = Date(timeIntervalSince1970: 1_787_261_100)
+        }
+    }
+
+    /// Test hook: applies a snapshot and fires `onDataChange` like `refresh()`'s defer.
+    package func simulateLoadedSnapshot(
+        _ snapshot: UsageSnapshot,
+        stats: StatsSnapshot? = nil,
+        claudeStatus: ClaudeStatusSnapshot? = nil,
+        deepSeekBalance: DeepSeekBalanceResponse? = nil
+    ) {
+        self.snapshot = snapshot
+        if let stats { statsSnapshot = stats }
+        if let claudeStatus { self.claudeStatus = claudeStatus }
+        if let deepSeekBalance {
+            self.deepSeekBalance = deepSeekBalance
+            deepSeekBalanceFetchedAt = Date(timeIntervalSince1970: 1_787_261_100)
+        }
+        lastError = nil
+        lastRefresh = Date(timeIntervalSince1970: 1_787_261_100)
+        onDataChange?()
+    }
+
+    /// Test hook: mirrors exactly what `refresh()` assigns when DeepSeek is
+    /// disabled — unconditional clear, not a conditional skip like
+    /// `simulateLoadedSnapshot`'s `deepSeekBalance` parameter.
+    package func simulateDeepSeekDisabled() {
+        deepSeekBalance = nil
+        deepSeekBalanceFetchedAt = nil
+        deepSeekError = nil
+        onDataChange?()
     }
 
     // MARK: - Polling
@@ -99,18 +188,91 @@ final class UsageMonitor {
         guard !isRefreshing else { return }
         let settings = UsageSettings.current
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            onDataChange?()
+        }
 
-        let client = UsageClient(executableOverride: settings.ompPath)
+        let usageClient = UsageClient(executableOverride: settings.ompPath)
+        let statsClient = StatsClient(executableOverride: settings.ompPath)
+        let deepSeekEnabled = DeepSeekSettings.current.isEnabled
+        let deepSeekKey = deepSeekEnabled ? deepSeekCredentialStore.loadAPIKey() : nil
+        // Cost estimates and the DeepSeek balance are both nice-to-haves on
+        // top of quota data — a failure or slow run there must never block
+        // or blank the quota lines above.
+        async let statsFetch: StatsSnapshot? = try? statsClient.fetch()
+        async let deepSeekFetch: Swift.Result<DeepSeekBalanceResponse, Error>? = {
+            guard let deepSeekKey, !deepSeekKey.isEmpty else { return nil }
+            do {
+                return .success(try await DeepSeekClient(apiKey: deepSeekKey).fetch())
+            } catch {
+                return .failure(error)
+            }
+        }()
+
         do {
-            let fresh = try await client.fetch()
+            let fresh = try await usageClient.fetch()
             snapshot = fresh
             lastError = nil
             lastRefresh = Date()
-            evaluateThresholds(for: fresh)
         } catch {
             // Keep the last good snapshot on screen; a failed poll is not "no usage".
             lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        if let stats = await statsFetch { statsSnapshot = stats }
+
+        let resolvedDeepSeek = Self.resolveDeepSeekBalance(
+            enabled: deepSeekEnabled,
+            result: await deepSeekFetch,
+            previousBalance: deepSeekBalance,
+            previousFetchedAt: deepSeekBalanceFetchedAt,
+            now: Date()
+        )
+        deepSeekBalance = resolvedDeepSeek.balance
+        deepSeekBalanceFetchedAt = resolvedDeepSeek.fetchedAt
+        deepSeekError = resolvedDeepSeek.error
+
+        let installer = ClaudeStatusLineInstaller.resolved(settingsPath: ClaudeStatusLineSettings.current.settingsPath)
+        claudeStatus = ClaudeStatusSnapshot.loadCached(from: installer.cacheURL)
+
+        // Alerts evaluate the merged view so a fresh Claude Code reading —
+        // which may now be the only source for the anthropic row — can still
+        // cross a threshold.
+        if let effective = effectiveSnapshot {
+            evaluateThresholds(for: effective)
+        }
+    }
+
+    /// Pure and actor-free so on/off and success/failure transitions can be
+    /// tested without a process, the Keychain, or the network.
+    ///
+    /// Turning DeepSeek off must blank the reading immediately — leaving a
+    /// merged report around after disable would show a number the user just
+    /// asked to stop seeing. An auth failure (401/403) means the stored key
+    /// is wrong or revoked, so a balance read under the old key is no longer
+    /// trustworthy either. Any other failure (network blip, timeout) is
+    /// transient: the last good reading stays on screen rather than
+    /// blanking on every hiccup, same policy as `omp usage`'s `lastError`.
+    nonisolated static func resolveDeepSeekBalance(
+        enabled: Bool,
+        result: Swift.Result<DeepSeekBalanceResponse, Error>?,
+        previousBalance: DeepSeekBalanceResponse?,
+        previousFetchedAt: Date?,
+        now: Date
+    ) -> (balance: DeepSeekBalanceResponse?, fetchedAt: Date?, error: String?) {
+        guard enabled else { return (nil, nil, nil) }
+        guard let result else {
+            return (nil, nil, DeepSeekClientError.notConfigured.errorDescription)
+        }
+        switch result {
+        case .success(let balance):
+            return (balance, now, nil)
+        case .failure(let error):
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            if case DeepSeekClientError.exitFailure(let code, _) = error, code == 401 || code == 403 {
+                return (nil, nil, message)
+            }
+            return (previousBalance, previousFetchedAt, message)
         }
     }
 
