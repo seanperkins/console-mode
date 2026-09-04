@@ -10,6 +10,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.11.1"),
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts.git", from: "1.10.0"),
+        .package(url: "https://github.com/Lakr233/libghostty-spm.git", from: "1.5.2"),
     ],
     targets: [
         .target(
@@ -17,6 +18,7 @@ let package = Package(
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
+                .product(name: "GhosttyTerminal", package: "libghostty-spm"),
             ],
             path: "Sources/ConsoleModeKit"
         ),

@@ -22,6 +22,20 @@ final class ConsoleShell {
 
     /// Mirrored from settings so the tab strip redraws when it is toggled.
     var usageEnabled: Bool = UsageSettings.current.isEnabled
+    /// Mirrored from settings, same pattern as `usageEnabled`.
+    var terminalEnabled: Bool = TerminalSettings.current.isEnabled
+    /// Flips true the first time the terminal tab is selected. Gates whether
+    /// `ConsoleView` mounts `TerminalTabView` at all — a real PTY only spawns
+    /// once this is true, never at panel construction, so an app where the
+    /// terminal tab is never opened pays zero cost for the feature existing.
+    /// Never resets to false: once a session exists, it stays mounted (and
+    /// merely hidden) so tab switches never lose it.
+    private(set) var hasActivatedTerminal = false
+
+    /// Called once, the first time the terminal tab becomes active.
+    func markTerminalActivated() {
+        hasActivatedTerminal = true
+    }
 
     init(notes: NoteListModel, usage: UsageMonitor) {
         self.notes = notes

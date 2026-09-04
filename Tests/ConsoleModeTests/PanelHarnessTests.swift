@@ -158,6 +158,21 @@ struct PanelHarnessTests {
         #expect(shell.activeTab == .notes)
     }
 
+    @Test func terminalStartsDisabledAndUnactivated() throws {
+        let shell = try makeShell()
+        #expect(shell.terminalEnabled == false)
+        #expect(shell.hasActivatedTerminal == false)
+    }
+
+    @Test func markTerminalActivatedFlipsOnceAndStays() throws {
+        let shell = try makeShell()
+        shell.markTerminalActivated()
+        #expect(shell.hasActivatedTerminal == true)
+        // Idempotent: calling it again (e.g. re-selecting the tab) is a no-op.
+        shell.markTerminalActivated()
+        #expect(shell.hasActivatedTerminal == true)
+    }
+
     @Test func onDataChangeExpandsPrewarmedPanelWhenUsageLinesArrive() throws {
         let store = try NoteStore.inMemory()
         _ = try store.append("alpha")
