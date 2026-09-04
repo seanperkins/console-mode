@@ -12,15 +12,18 @@ struct TerminalConfig: Sendable, Equatable {
     /// time), matching how a real terminal picks a shell.
     var shellPath: String
     /// Scrollback is bounded so a session left open for days keeps flat
-    /// memory. `libghostty` enforces the actual cap; this is the number
-    /// handed to it.
-    var scrollbackLines: Int
+    /// memory. `libghostty`'s real config key (`scrollback-limit`) is
+    /// bytes, not lines — a line-count knob would be imprecise anyway,
+    /// since actual bytes-per-line vary with terminal width and content
+    /// (Ghostty's own docs call this out). Stored here as whole megabytes,
+    /// the unit a Settings stepper can show meaningfully.
+    var scrollbackLimitMB: Int
 
     static let standard = TerminalConfig(
         isEnabled: false,
         workingDirectory: "",
         shellPath: "",
-        scrollbackLines: 5000
+        scrollbackLimitMB: 50
     )
 }
 
@@ -29,7 +32,7 @@ enum TerminalSettings {
         static let enabled = "terminal.enabled"
         static let workingDirectory = "terminal.workingDirectory"
         static let shellPath = "terminal.shellPath"
-        static let scrollbackLines = "terminal.scrollbackLines"
+        static let scrollbackLimitMB = "terminal.scrollbackLimitMB"
     }
 
     static var current: TerminalConfig {
@@ -45,8 +48,8 @@ enum TerminalSettings {
             if let shell = defaults.string(forKey: Key.shellPath) {
                 config.shellPath = shell
             }
-            if defaults.object(forKey: Key.scrollbackLines) != nil {
-                config.scrollbackLines = max(500, defaults.integer(forKey: Key.scrollbackLines))
+            if defaults.object(forKey: Key.scrollbackLimitMB) != nil {
+                config.scrollbackLimitMB = max(5, defaults.integer(forKey: Key.scrollbackLimitMB))
             }
             return config
         }
@@ -55,7 +58,7 @@ enum TerminalSettings {
             defaults.set(newValue.isEnabled, forKey: Key.enabled)
             defaults.set(newValue.workingDirectory, forKey: Key.workingDirectory)
             defaults.set(newValue.shellPath, forKey: Key.shellPath)
-            defaults.set(newValue.scrollbackLines, forKey: Key.scrollbackLines)
+            defaults.set(newValue.scrollbackLimitMB, forKey: Key.scrollbackLimitMB)
         }
     }
 }

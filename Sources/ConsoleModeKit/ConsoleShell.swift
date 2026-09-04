@@ -39,9 +39,22 @@ final class ConsoleShell {
     /// dismissed far more often than the tab is changed.
     var isPanelVisible = false
 
+    /// Bumped by Settings' "Restart terminal" action. `ConsoleView` keys
+    /// `TerminalTabView`'s identity on this, so incrementing it tears down
+    /// and recreates the whole view — including its `@StateObject` — which
+    /// is the only way to force a fresh PTY when the current one has hung.
+    var terminalRestartToken = 0
+
     /// Called once, the first time the terminal tab becomes active.
     func markTerminalActivated() {
         hasActivatedTerminal = true
+    }
+
+    /// Kills the current session (via view identity) and starts a fresh one
+    /// on the next activation. Available even mid-session, unlike
+    /// `hasActivatedTerminal`, which never resets.
+    func restartTerminal() {
+        terminalRestartToken += 1
     }
 
     init(notes: NoteListModel, usage: UsageMonitor) {
@@ -75,6 +88,17 @@ final class ConsoleShell {
         } else {
             usage.stop()
             if activeTab == .usage { activeTab = .notes }
+        }
+    }
+
+    /// No poller to start/stop — a disabled terminal just leaves the tab
+    /// hidden. Its session (if one was ever activated) keeps running,
+    /// matching `hasActivatedTerminal`'s "never torn down" contract:
+    /// toggling this off and back on returns to the same session.
+    func setTerminalEnabled(_ enabled: Bool) {
+        terminalEnabled = enabled
+        if !enabled, activeTab == .terminal {
+            activeTab = .notes
         }
     }
 

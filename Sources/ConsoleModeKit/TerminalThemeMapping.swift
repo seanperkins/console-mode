@@ -25,14 +25,14 @@ extension ThemeTokens {
     /// appearance-dependent — while `.system`'s `.primary`/`.accentColor`
     /// resolve to their real per-appearance values instead of whichever
     /// happens to be current when this is called.
-    func terminalTheme() -> GhosttyTerminal.TerminalTheme {
+    func terminalTheme(scrollbackLimitMB: Int) -> GhosttyTerminal.TerminalTheme {
         GhosttyTerminal.TerminalTheme(
-            light: terminalConfiguration(appearance: NSAppearance(named: .aqua)!),
-            dark: terminalConfiguration(appearance: NSAppearance(named: .darkAqua)!)
+            light: terminalConfiguration(appearance: NSAppearance(named: .aqua)!, scrollbackLimitMB: scrollbackLimitMB),
+            dark: terminalConfiguration(appearance: NSAppearance(named: .darkAqua)!, scrollbackLimitMB: scrollbackLimitMB)
         )
     }
 
-    private func terminalConfiguration(appearance: NSAppearance) -> TerminalConfiguration {
+    private func terminalConfiguration(appearance: NSAppearance, scrollbackLimitMB: Int) -> TerminalConfiguration {
         TerminalConfiguration { builder in
             builder.withBackground(terminalBackground.hexString(appearance: appearance))
             builder.withForeground(textPrimary.hexString(appearance: appearance))
@@ -50,6 +50,9 @@ extension ThemeTokens {
             // being split across all four sides, which is what read as "not
             // sitting flush at the bottom."
             builder.withCustom("window-padding-balance", "true")
+            // Bytes, not lines — Ghostty's own real unit. A session left
+            // open for days stays bounded instead of growing without limit.
+            builder.withCustom("scrollback-limit", "\(max(5, scrollbackLimitMB) * 1_000_000)")
         }
     }
 }

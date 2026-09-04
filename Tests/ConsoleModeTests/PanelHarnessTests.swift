@@ -219,6 +219,50 @@ struct PanelHarnessTests {
         #expect(shell.activeTab == .notes)
     }
 
+    @Test func disablingTerminalLeavesTheTabButKeepsTheSession() throws {
+        let shell = try makeShell()
+        shell.setTerminalEnabled(true)
+        shell.select(.terminal)
+        #expect(shell.activeTab == .terminal)
+        #expect(shell.hasActivatedTerminal == true)
+
+        // Disabling moves off the tab (it's no longer in `tabs`), but does
+        // not un-activate the session — re-enabling returns to the same one.
+        shell.setTerminalEnabled(false)
+        #expect(shell.activeTab == .notes)
+        #expect(shell.hasActivatedTerminal == true)
+
+        shell.setTerminalEnabled(true)
+        shell.select(.terminal)
+        #expect(shell.activeTab == .terminal)
+    }
+
+    @Test func restartTerminalBumpsTheTokenWithoutTouchingActivation() throws {
+        let shell = try makeShell()
+        #expect(shell.terminalRestartToken == 0)
+
+        shell.setTerminalEnabled(true)
+        shell.select(.terminal)
+        #expect(shell.hasActivatedTerminal == true)
+
+        shell.restartTerminal()
+        #expect(shell.terminalRestartToken == 1)
+        // Restarting doesn't deactivate — ConsoleView still mounts a (fresh) view.
+        #expect(shell.hasActivatedTerminal == true)
+        #expect(shell.activeTab == .terminal)
+
+        shell.restartTerminal()
+        #expect(shell.terminalRestartToken == 2)
+    }
+
+    @Test func terminalConfigDefaultsAreSaneAndUnitIsMegabytes() throws {
+        let standard = TerminalConfig.standard
+        #expect(standard.isEnabled == false)
+        #expect(standard.workingDirectory.isEmpty)
+        #expect(standard.shellPath.isEmpty)
+        #expect(standard.scrollbackLimitMB == 50)
+    }
+
     @Test func onDataChangeExpandsPrewarmedPanelWhenUsageLinesArrive() throws {
         let store = try NoteStore.inMemory()
         _ = try store.append("alpha")

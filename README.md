@@ -174,6 +174,32 @@ Enable/configure sources in Settings: **LLM usage** (the `omp` CLI path and
 poll interval), **Claude Code usage** (installs the statusline wrapper), and
 **DeepSeek balance** (API key, stored in Keychain).
 
+## Terminal tab
+
+`⌃3` switches to the Terminal tab: a real shell, in your real `$SHELL`, in
+the same panel — not a sandboxed emulation and not a second app to switch to.
+
+- **Real PTY, real shell.** Built on `libghostty` (via
+  [`Lakr233/libghostty-spm`](https://github.com/Lakr233/libghostty-spm)) with
+  its `.exec` backend — the same native spawn path the actual Ghostty
+  terminal app uses, not a hand-rolled `Process`/`Pipe` bridge. Your login
+  shell, your dotfiles, your actual filesystem.
+- **Lazy and cheap.** The shell only spawns the first time you open the tab —
+  never at launch, never for an app that doesn't use the feature. Once
+  spawned it stays alive: switching to Notes/Usage and dismissing the panel
+  only stop *rendering* it (no CPU/GPU work while hidden), never the process
+  itself, so your working directory, running command, and scrollback survive
+  every switch.
+- **Matches your theme.** Background, foreground, cursor, and selection
+  colors follow whichever preset is active (System, Cyberpunk, Terminal,
+  Paper) and restyle live if you change it in Settings mid-session.
+- **Bounded scrollback.** Capped in Settings (default 50MB) so a session left
+  open for days keeps flat memory instead of growing without limit.
+
+Enable it in Settings → **Terminal** — also where you override the working
+directory, the shell binary, and the scrollback cap, and where "Restart
+terminal" ends a hung session and starts a fresh one.
+
 ## Storage
 
 Notes: `~/Library/Application Support/ConsoleMode/notes.sqlite`
@@ -182,7 +208,8 @@ Notes: `~/Library/Application Support/ConsoleMode/notes.sqlite`
 
 - **ConsoleModeKit** — SQLite store (GRDB), panel geometry, SwiftUI views,
   global hotkey, usage polling/merge logic, Claude Code statusline installer,
-  DeepSeek client, action review, Obsidian export, reminders.
+  DeepSeek client, action review, Obsidian export, reminders, terminal tab
+  (`GhosttyTerminal`, real PTY via `libghostty`).
 - **ConsoleMode** — thin `@main` executable (`LSUIElement` menu bar app).
 
 Screenshots above are real, production-code renders — `make snapshots` drives
@@ -195,3 +222,4 @@ required.
 
 - Spec: `docs/superpowers/specs/2026-08-20-console-mode-design.md`
 - Plan: `docs/superpowers/plans/2026-08-20-console-mode.md`
+- Plan: `docs/superpowers/plans/2026-09-04-terminal-tab.md`

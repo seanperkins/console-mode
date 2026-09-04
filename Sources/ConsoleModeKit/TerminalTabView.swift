@@ -23,7 +23,10 @@ struct TerminalTabView: View {
         self.shell = shell
         // Seeded with the live theme at construction (first activation), not
         // `.default` — `onChange` below keeps it current after that.
-        _terminal = StateObject(wrappedValue: TerminalViewState(theme: shell.theme.terminalTheme()))
+        let scrollbackLimitMB = TerminalSettings.current.scrollbackLimitMB
+        _terminal = StateObject(
+            wrappedValue: TerminalViewState(theme: shell.theme.terminalTheme(scrollbackLimitMB: scrollbackLimitMB))
+        )
     }
 
     private var isVisible: Bool {
@@ -67,7 +70,8 @@ struct TerminalTabView: View {
                 }
             }
             .onChange(of: shell.themeID) { _, _ in
-                terminal.setTheme(shell.theme.terminalTheme())
+                let scrollbackLimitMB = TerminalSettings.current.scrollbackLimitMB
+                terminal.setTheme(shell.theme.terminalTheme(scrollbackLimitMB: scrollbackLimitMB))
             }
     }
 }

@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var launchAtLoginError: String?
     @State private var config = TaggerSettings.current
     @State private var usage = UsageSettings.current
+    @State private var terminal = TerminalSettings.current
     @State private var obsidian = ObsidianSettings.current
     @State private var actionReview = ActionReviewSettings.current
     @State private var claudeStatusLine = ClaudeStatusLineSettings.current
@@ -46,6 +47,7 @@ struct SettingsView: View {
                 shortcutSection
                 appearanceSection
                 usageSection
+                terminalSection
                 claudeStatusLineSection
                 deepSeekSection
                 openRouterSection
@@ -167,6 +169,60 @@ struct SettingsView: View {
         guard let detected else { return "omp not found — set the path above." }
         let providers = shell.usage.rollup.count
         return "Using \(detected)" + (providers > 0 ? " · \(providers) providers" : "")
+    }
+
+    // MARK: - Terminal
+
+    private var terminalSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Terminal")
+                .font(.headline)
+
+            Toggle("Show the Terminal tab", isOn: $terminal.isEnabled)
+
+            TextField("Working directory (blank = home folder)", text: $terminal.workingDirectory)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!terminal.isEnabled)
+
+            TextField("Shell path (blank = $SHELL)", text: $terminal.shellPath)
+                .textFieldStyle(.roundedBorder)
+                .disabled(!terminal.isEnabled)
+
+            HStack {
+                Text("Scrollback limit")
+                Stepper(value: $terminal.scrollbackLimitMB, in: 5...500, step: 5) {
+                    Text("\(terminal.scrollbackLimitMB) MB")
+                        .monospacedDigit()
+                }
+                .fixedSize()
+            }
+            .disabled(!terminal.isEnabled)
+
+            HStack(spacing: 10) {
+                Button("Restart terminal") {
+                    shell.restartTerminal()
+                }
+                .disabled(!shell.hasActivatedTerminal)
+                .help("Ends the current shell session and starts a fresh one")
+            }
+
+            Text(
+                "A real PTY to your own login shell (not a sandboxed emulation) — the same engine the " +
+                    "actual Ghostty app uses. Spawns only the first time you open the tab, never at " +
+                    "launch, and stops rendering the instant you switch away or dismiss the panel; the " +
+                    "shell process itself keeps running so your working directory and scrollback survive " +
+                    "both. Working directory and shell path changes apply the next time a session spawns " +
+                    "(this session, or use Restart above to apply them now)."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .onChange(of: terminal) { previous, updated in
+            TerminalSettings.current = updated
+            if previous.isEnabled != updated.isEnabled {
+                shell.setTerminalEnabled(updated.isEnabled)
+            }
+        }
     }
 
     // MARK: - Claude Code statusline

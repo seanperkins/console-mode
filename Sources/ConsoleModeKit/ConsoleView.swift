@@ -123,6 +123,7 @@ struct ConsoleView: View {
 
                 if shell.hasActivatedTerminal {
                     TerminalTabView(shell: shell)
+                        .id(shell.terminalRestartToken)
                         .opacity(shell.activeTab == .terminal ? 1 : 0)
                         .allowsHitTesting(shell.activeTab == .terminal)
                 }
